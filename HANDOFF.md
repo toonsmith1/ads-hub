@@ -15,9 +15,18 @@
 - เปิด PR เข้า main แล้ว (จาก branch `claude/project-thread-bcztk5` ซึ่งมีทุก commit ของ `claude/extension-hub` + ที่แก้เพิ่ม)
 - หมายเหตุ: `extension/test-dashboard.js`, `test-e2e-qa.js`, `test-popup.js` พังมาตั้งแต่ต้นฉบับ shopithread (พังเหมือนกันที่ `d053034`) ไม่เกี่ยวกับ Ad Hub
 
+- เฟส 3 (PR #2 ของ ads-hub, branch `claude/project-thread-igzbqd`) ไม่แตะ extension ตามที่ผู้ใช้ขอ (ใช้ Shopee ที่เดียว)
+  - `supabase/schema.sql` ต่อท้าย: `hub_sites`, `hub_placements`, `hub_events` และ rpc `hub_ads`, `hub_go`, `hub_log_views`, `hub_product_stats`
+  - `supabase/functions/go/index.ts`: Edge Function `/go/<id>` นับคลิกแล้ว 302 ไปลิงก์ affiliate
+  - `web/ads.js`: สคริปต์ฝัง (`window.AdHub`: load / render / observe / scan)
+  - หน้าจัดการ: ปุ่ม "เว็บที่แสดงโฆษณา" (เว็บ จุดที่วาง ปักหมุด โค้ดฝัง) และคลิก 30 วันบนการ์ด/ตาราง/แผงแก้ไข
+  - ทดสอบ: `bash tests/db-test.sh` (Postgres 16), `node --experimental-strip-types tests/go-test.mjs`,
+    `node tests/ads-e2e.js`, `node tests/admin-sites-e2e.js` ผ่านทั้งหมด
+  - สลับ transfer: ทำใน repo toonsmith1/transfer เป็น PR แยก มีสวิตช์ (ตั้งลิงก์ ads.js ในแอดมิน transfer) ไม่ใส่ = ใช้โฆษณาเดิม
+
 ## ยังไม่ได้ทำ
-- ผู้ใช้ยังไม่ได้ติดตั้งบน Supabase/Netlify ตาม README
-- เฟส 3: `ads.js` + ลิงก์ `/go/<id>` นับคลิก แล้วสลับเว็บ transfer มาใช้
+- ผู้ใช้ยังไม่ได้ติดตั้งบน Supabase/Netlify ตาม README (รวมขั้นที่ 6-7 ของเฟส 3: Edge Function `go` และเพิ่มเว็บ)
+- เปิดสวิตช์ Ad Hub ใน transfer หลังติดตั้งเสร็จ
 - เฟส 4: หน้าสถิติ, ตัวแต่งรูปโฆษณา, สุ่มข้อความ (spintax จาก `extension/libs/spintax.js`) ทั้งปุ่มสร้างแคปชันและข้อความโปรยบนการ์ด
 
 ## กฎของเจ้าของ

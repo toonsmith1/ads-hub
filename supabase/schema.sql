@@ -252,3 +252,219 @@ from (values
   ('กีฬาและกิจกรรม', 120, array['กีฬา', 'ฟิตเนส', 'โยคะ'])
 ) as v(name, sort, keywords)
 where not exists (select 1 from public.hub_categories);
+
+-- ==========================================
+-- เฟส 3: เว็บที่นำโฆษณาไปแสดง จุดที่วาง และการนับการแสดง/คลิก
+--   เว็บเรียก ads.js?site=<คีย์เว็บ> → rpc hub_ads ได้สินค้าตามจุดที่วาง
+--   การ์ดลิงก์ไปที่ /go/<รหัสสินค้า> (Edge Function supabase/functions/go) → rpc hub_go บันทึกคลิกแล้วส่งต่อ
+-- ==========================================
+create table if not exists public.hub_sites (
+  id bigserial primary key,
+  -- คีย์ที่ใส่ในโค้ดฝัง เช่น "transfer" (ตัวเล็ก ตัวเลข ขีด)
+  key text not null unique check (key ~ '^[a-z0-9][a-z0-9-]{0,39}$'),
+  name text not null check (length(trim(name)) between 1 and 80),
+  domain text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.hub_placements (
+  id bigserial primary key,
+  site_id bigint not null references public.hub_sites (id) on delete cascade,
+  -- คีย์ของจุดที่วาง เช่น "feed" (แทรกในรายการ) "detail" (หน้ารายละเอียด)
+  key text not null check (key ~ '^[a-z0-9][a-z0-9_-]{0,39}$'),
+  label text not null default '',
+  -- จำนวนโฆษณาต่อหน้า
+  slots integer not null default 4 check (slots between 1 and 24),
+  -- ตำแหน่งในหน้า (แทรกหลังรายการที่ N) ส่งให้เว็บใช้เอง ว่างได้
+  positions integer[] not null default '{}',
+  -- หมวดที่ให้สุ่ม (รวมหมวดย่อย) ว่าง = ทุกหมวด
+  category_ids bigint[] not null default '{}',
+  -- สินค้าที่ปักหมุด ขึ้นก่อนเสมอตามลำดับนี้
+  pinned_ids bigint[] not null default '{}',
+  enabled boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (site_id, key)
+);
+
+-- การแสดง (view) และคลิก (click) ต่อสินค้า ไม่เก็บข้อมูลส่วนตัวของผู้ชม
+create table if not exists public.hub_events (
+  id bigserial primary key,
+  event_at timestamptz not null default now(),
+  event text not null check (event in ('view', 'click')),
+  product_id bigint not null references public.hub_products (id) on delete cascade,
+  site_id bigint references public.hub_sites (id) on delete set null,
+  placement text not null default ''
+);
+create index if not exists hub_events_product_idx on public.hub_events (product_id, event, event_at desc);
+create index if not exists hub_events_time_idx on public.hub_events (event_at desc);
+
+alter table public.hub_sites enable row level security;
+alter table public.hub_placements enable row level security;
+alter table public.hub_events enable row level security;
+
+-- คนทั่วไปไม่อ่านตารางพวกนี้ตรงๆ ใช้ผ่าน hub_ads / hub_go / hub_log_views เท่านั้น
+revoke all on public.hub_sites, public.hub_placements, public.hub_events from anon;
+grant select, insert, update, delete on public.hub_sites, public.hub_placements to authenticated;
+grant select on public.hub_events to authenticated;
+grant usage on sequence public.hub_sites_id_seq, public.hub_placements_id_seq to authenticated;
+
+drop policy if exists "admin all" on public.hub_sites;
+create policy "admin all" on public.hub_sites for all to authenticated
+  using (public.hub_is_admin()) with check (public.hub_is_admin());
+drop policy if exists "admin all" on public.hub_placements;
+create policy "admin all" on public.hub_placements for all to authenticated
+  using (public.hub_is_admin()) with check (public.hub_is_admin());
+drop policy if exists "admin read" on public.hub_events;
+create policy "admin read" on public.hub_events for select to authenticated using (public.hub_is_admin());
+
+-- สินค้าที่ขึ้นเว็บได้ตอนนี้ (เงื่อนไขเดียวกับ policy "public read live")
+create or replace function public.hub_is_live(p public.hub_products) returns boolean
+language sql stable
+as $$
+  select p.status = 'active'
+     and (p.starts_on is null or p.starts_on <= (now() at time zone 'Asia/Bangkok')::date)
+     and (p.ends_on is null or p.ends_on >= (now() at time zone 'Asia/Bangkok')::date);
+$$;
+
+-- หมวดที่ตรงกับคำบอกบริบทของหน้า: ชื่อหมวดตรงกัน หรือคำของหมวดอยู่ในข้อความ (รวมหมวดย่อย)
+create or replace function public.hub_context_categories(p_context text) returns bigint[]
+language sql stable
+set search_path = public
+as $$
+  with hit as (
+    select c.id from hub_categories c
+    where lower(c.name) = lower(trim(p_context))
+       or exists (select 1 from unnest(c.keywords) k where k <> '' and position(lower(k) in lower(p_context)) > 0)
+  )
+  select coalesce(array_agg(distinct id), '{}') from (
+    select id from hit
+    union select c.id from hub_categories c join hit on c.parent_id = hit.id
+  ) s;
+$$;
+
+-- โฆษณาสำหรับจุดที่วางหนึ่งจุด
+--   ปักหมุดขึ้นก่อน → สินค้าในหมวดตามบริบทของหน้า → สินค้าในหมวดของจุดที่วาง
+--   สุ่มแบบถ่วงน้ำหนัก: น้ำหนักที่ตั้งไว้ × ค่าคอม × คลิกใน 30 วัน ไม่ซ้ำกันและไม่ซ้ำกับ p_exclude (ที่หน้าแสดงไปแล้ว)
+-- คืนค่า {placement: {key, slots, positions} | null, ads: [{id, title, price, price_text, sold_text, shop, source, image_url}]}
+create or replace function public.hub_ads(
+  p_site text, p_placement text, p_context text default '', p_count integer default null, p_exclude bigint[] default '{}'
+) returns jsonb
+language plpgsql security definer
+set search_path = public
+as $$
+declare
+  pl hub_placements;
+  n integer;
+  ctx bigint[] := '{}';
+  cats bigint[];
+  ads jsonb;
+begin
+  select p.* into pl from hub_placements p join hub_sites s on s.id = p.site_id
+  where s.key = lower(trim(p_site)) and p.key = lower(trim(p_placement)) and p.enabled;
+  if pl.id is null then
+    return jsonb_build_object('placement', null, 'ads', '[]'::jsonb);
+  end if;
+  n := least(greatest(coalesce(p_count, pl.slots), 1), 24);
+  if coalesce(trim(p_context), '') <> '' then
+    ctx := hub_context_categories(p_context);
+  end if;
+  if cardinality(pl.category_ids) > 0 then
+    -- หมวดที่ตั้งไว้ถูกลบหมดแล้ว = ไม่มีสินค้าให้สุ่ม (ไม่ใช่กลายเป็นทุกหมวด)
+    select coalesce(array_agg(distinct id), '{-1}') into cats from hub_categories
+    where id = any (pl.category_ids) or parent_id = any (pl.category_ids);
+  end if;
+
+  with live as (
+    select hp.*, (select count(*) from hub_events e
+                  where e.product_id = hp.id and e.event = 'click' and e.event_at > now() - interval '30 days') as clicks
+    from hub_products hp
+    where hub_is_live(hp) and not (hp.id = any (coalesce(p_exclude, '{}')))
+  ),
+  ranked as (
+    select l.*,
+           case when l.id = any (pl.pinned_ids) then 0
+                when l.category_id = any (ctx) then 1
+                when cats is null or l.category_id = any (cats) then 2
+           end as tier,
+           array_position(pl.pinned_ids, l.id) as pin_order,
+           -- Efraimidis–Spirakis: ค่าน้อยได้ก่อน ยิ่งน้ำหนักมากยิ่งมีโอกาสได้ค่าน้อย
+           -ln(1 - random()) / (l.weight * (1 + coalesce(l.commission, 0) / 10.0) * (1 + ln(1 + l.clicks))) as roll
+    from live l
+  ),
+  picked as (
+    select * from ranked where tier is not null
+    order by tier, pin_order nulls last, roll
+    limit n
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', id, 'title', title, 'price', price, 'price_text', price_text, 'sold_text', sold_text,
+           'shop', shop, 'source', source, 'image_url', image_url)
+         order by tier, pin_order nulls last, roll), '[]'::jsonb)
+  into ads from picked;
+
+  return jsonb_build_object(
+    'placement', jsonb_build_object('key', pl.key, 'slots', pl.slots, 'positions', to_jsonb(pl.positions)),
+    'ads', ads);
+end;
+$$;
+revoke all on function public.hub_ads(text, text, text, integer, bigint[]) from public;
+grant execute on function public.hub_ads(text, text, text, integer, bigint[]) to anon, authenticated;
+
+-- ลิงก์ /go/<id>: คืนลิงก์ affiliate และบันทึกคลิก (p_log = false สำหรับบอทที่มาเปิดดูตัวอย่างลิงก์)
+-- ส่งต่อได้แม้สินค้าหยุดแสดงแล้ว เพราะหน้าเว็บที่เปิดค้างไว้อาจยังมีการ์ดเก่าอยู่
+create or replace function public.hub_go(
+  p_id bigint, p_site text default '', p_placement text default '', p_log boolean default true
+) returns text
+language plpgsql security definer
+set search_path = public
+as $$
+declare
+  v_link text;
+begin
+  select link into v_link from hub_products where id = p_id;
+  if v_link is null then
+    return null;
+  end if;
+  if p_log then
+    insert into hub_events (event, product_id, site_id, placement)
+    values ('click', p_id, (select id from hub_sites where key = lower(trim(coalesce(p_site, '')))),
+            left(lower(trim(coalesce(p_placement, ''))), 40));
+  end if;
+  return v_link;
+end;
+$$;
+revoke all on function public.hub_go(bigint, text, text, boolean) from public;
+grant execute on function public.hub_go(bigint, text, text, boolean) to anon, authenticated, service_role;
+
+-- นับการแสดง: ads.js ส่งรหัสสินค้าที่ขึ้นจอครึ่งหนึ่งขึ้นไปมาเป็นชุด (ไม่เกิน 24 รายการต่อครั้ง)
+create or replace function public.hub_log_views(p_site text, p_placement text, p_ids bigint[])
+returns void
+language plpgsql security definer
+set search_path = public
+as $$
+begin
+  insert into hub_events (event, product_id, site_id, placement)
+  select 'view', hp.id, (select id from hub_sites where key = lower(trim(coalesce(p_site, '')))),
+         left(lower(trim(coalesce(p_placement, ''))), 40)
+  from hub_products hp
+  where hp.id = any ((coalesce(p_ids, '{}'))[1:24]);
+end;
+$$;
+revoke all on function public.hub_log_views(text, text, bigint[]) from public;
+grant execute on function public.hub_log_views(text, text, bigint[]) to anon, authenticated;
+
+-- จำนวนการแสดงและคลิกต่อสินค้าย้อนหลัง N วัน (แอดมินเท่านั้น ตาม RLS ของ hub_events)
+create or replace function public.hub_product_stats(p_ids bigint[], p_days integer default 30)
+returns table (product_id bigint, views bigint, clicks bigint)
+language sql stable
+set search_path = public
+as $$
+  select e.product_id,
+         count(*) filter (where e.event = 'view'),
+         count(*) filter (where e.event = 'click')
+  from hub_events e
+  where e.product_id = any (p_ids)
+    and e.event_at > now() - make_interval(days => least(greatest(coalesce(p_days, 30), 1), 365))
+  group by e.product_id;
+$$;
+grant execute on function public.hub_product_stats(bigint[], integer) to authenticated;
