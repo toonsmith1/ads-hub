@@ -48,7 +48,9 @@
     const pageLink = isHttp(p.longLink) ? p.longLink : '';
     // ต้องเป็นลิงก์ affiliate ที่ผู้ชมกดซื้อได้ ถ้าตัวดึงเอาลิงก์ไม่ได้จะคืนลิงก์หน้าที่ดึงมาแทน
     // ลิงก์แบบนั้นและลิงก์หน้าสินค้าในพอร์ทัล affiliate ใช้ไม่ได้ จึงเว้นว่างให้ถูกข้าม
-    const link = isHttp(p.shortLink) && p.shortLink !== p.pageUrl ? p.shortLink : (isHttp(p.link) ? p.link : '');
+    // (ตัวดึงคืนลิงก์ของการ์ดสินค้าซึ่งก็คือ longLink หรือคืน URL ของหน้า)
+    const fallback = [p.pageUrl, p.longLink].filter(Boolean);
+    const link = isHttp(p.shortLink) && !fallback.includes(p.shortLink) ? p.shortLink : (isHttp(p.link) ? p.link : '');
     const price = String(p.price || '').trim();
     return {
       title: String(p.title || p.rawTitle || '').replace(/\s+/g, ' ').trim(),
