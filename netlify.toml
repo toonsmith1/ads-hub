@@ -7,3 +7,13 @@
   [headers.values]
     X-Frame-Options = "DENY"
     Referrer-Policy = "strict-origin-when-cross-origin"
+
+# ads.js และ config.js ถูกเว็บอื่นโหลดไปใช้ ให้แคชสั้นๆ แก้แล้วเห็นผลภายใน 5 นาที
+[[headers]]
+  for = "/ads.js"
+  [headers.values]
+    Cache-Control = "public, max-age=300"
+[[headers]]
+  for = "/config.js"
+  [headers.values]
+    Cache-Control = "public, max-age=300"
