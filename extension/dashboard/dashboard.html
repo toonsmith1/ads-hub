@@ -49,6 +49,11 @@
           <span class="nav-icon">📁</span>
           <span class="nav-label">นำเข้า & ส่งออก CSV</span>
         </button>
+        <button class="nav-item" data-tab="tab-adhub">
+          <span class="nav-icon">📤</span>
+          <span class="nav-label">คลังโฆษณา (Ad Hub)</span>
+          <span class="nav-badge" id="adhub-nav-badge" style="background: #475569;">ปิด</span>
+        </button>
         <button class="nav-item" data-tab="tab-guide">
           <span class="nav-icon">💡</span>
           <span class="nav-label">คู่มือการใช้งาน</span>
@@ -454,6 +459,55 @@
       </section>
 
       <!-- TAB 4: คู่มือการใช้งาน -->
+      <section id="tab-adhub" class="tab-pane">
+        <div class="settings-grid">
+          <div class="settings-card">
+            <div class="card-header">
+              <h3 class="card-title">🔌 เชื่อมคลังโฆษณากลาง (Ad Hub)</h3>
+              <p class="card-desc">ใช้บัญชีแอดมินของ Ad Hub แล้วปุ่ม "ส่งเข้าคลังโฆษณา" บนหน้า Shopee จะส่งสินค้าเข้าคลังได้ทันที ไม่ต้อง export CSV</p>
+            </div>
+            <div class="card-body">
+              <div id="adhub-connected" style="display: none;">
+                <p style="margin: 0 0 6px;">✅ เชื่อมแล้วด้วย <b id="adhub-email"></b></p>
+                <p class="card-desc" style="margin: 0 0 14px; word-break: break-all;" id="adhub-url"></p>
+                <button type="button" id="adhub-disconnect" class="btn-toolbar btn-outline">ตัดการเชื่อมต่อ</button>
+              </div>
+              <form id="adhub-form" autocomplete="off">
+                <div class="form-group">
+                  <label for="adhub-input-url">Project URL ของ Supabase</label>
+                  <input type="url" id="adhub-input-url" placeholder="https://xxxx.supabase.co" required>
+                </div>
+                <div class="form-group">
+                  <label for="adhub-input-key">Publishable key (หรือ anon key)</label>
+                  <input type="text" id="adhub-input-key" placeholder="sb_publishable_..." required>
+                </div>
+                <div class="form-group">
+                  <label for="adhub-input-email">อีเมลแอดมิน</label>
+                  <input type="email" id="adhub-input-email" required>
+                </div>
+                <div class="form-group">
+                  <label for="adhub-input-password">รหัสผ่าน (ไม่ถูกบันทึกไว้ ใช้แค่ตอนล็อกอิน)</label>
+                  <input type="password" id="adhub-input-password" required>
+                </div>
+                <button type="submit" id="adhub-connect" class="btn-toolbar btn-primary-gradient">เชื่อมต่อ</button>
+              </form>
+              <p id="adhub-message" class="card-desc" style="margin-top: 12px;"></p>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <div class="card-header">
+              <h3 class="card-title">📦 ส่งสินค้าที่บันทึกไว้เข้าคลัง</h3>
+              <p class="card-desc">ส่งสินค้าทั้งหมดในแดชบอร์ดนี้เข้าคลังครั้งเดียว ของที่มีในคลังแล้วจะอัปเดตราคาและค่าคอมให้ ไม่สร้างซ้ำ สินค้าใหม่จะอยู่ในสถานะ "รอตรวจ"</p>
+            </div>
+            <div class="card-body">
+              <button type="button" id="adhub-send-all" class="btn-toolbar btn-primary-gradient" disabled>📤 ส่งทั้งหมดเข้าคลัง</button>
+              <p id="adhub-send-result" class="card-desc" style="margin-top: 12px;"></p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section id="tab-guide" class="tab-pane">
         <div class="settings-card">
           <div class="card-header">
@@ -585,5 +639,7 @@
   <script src="../libs/csv-service.js"></script>
   <script src="../libs/threads-content-service.js"></script>
   <script src="dashboard.js"></script>
+  <script src="../libs/hub-service.js"></script>
+  <script src="adhub-tab.js"></script>
 </body>
 </html>

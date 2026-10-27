@@ -8,6 +8,9 @@
 
 'use strict';
 
+// ส่งสินค้าเข้าคลังโฆษณากลาง (Ad Hub)
+importScripts('libs/hub-service.js');
+
 /**
  * Injected helper into Threads tab to find composer, focus, and paste caption
  * STRICTLY MANUAL ASSISTED: NEVER CLICKS SUBMIT / POST.
@@ -58,17 +61,31 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
 
     if (request.action === 'OPEN_DASHBOARD') {
       const dashboardUrl = chrome.runtime.getURL('dashboard/dashboard.html');
+      // hash เปิดแท็บที่ต้องการ เช่น #tab-adhub
+      const hash = /^#[\w-]+$/.test(request.hash || '') ? request.hash : '';
       chrome.tabs.query({ url: dashboardUrl }, (tabs) => {
         if (tabs && tabs.length > 0) {
-          chrome.tabs.update(tabs[0].id, { active: true });
+          chrome.tabs.update(tabs[0].id, hash ? { active: true, url: dashboardUrl + hash } : { active: true });
           if (tabs[0].windowId && chrome.windows) {
             chrome.windows.update(tabs[0].windowId, { focused: true }).catch(() => {});
           }
         } else {
-          chrome.tabs.create({ url: dashboardUrl });
+          chrome.tabs.create({ url: dashboardUrl + hash });
         }
         sendResponse({ success: true });
       });
+      return true;
+    }
+
+    if (request.action === 'HUB_STATUS') {
+      HubService.status().then(sendResponse, err => sendResponse({ connected: false, error: err.message }));
+      return true;
+    }
+
+    if (request.action === 'HUB_IMPORT') {
+      HubService.importProducts(request.products, request.keyword, request.status)
+        .then(result => sendResponse({ success: true, ...result }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
     }
 

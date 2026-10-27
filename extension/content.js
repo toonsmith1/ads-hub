@@ -122,6 +122,10 @@
           💾 บันทึกลงแดชบอร์ด & CSV (${detectedItems.length})
         </button>
 
+        <button id="dl-hub-btn" class="shopee-dl-btn-primary" style="background: linear-gradient(135deg, #10b981, #0d9488); margin-top: 6px;">
+          📤 ส่งเข้าคลังโฆษณา (Ad Hub)
+        </button>
+
         <button id="dl-start-zip-btn" class="shopee-dl-btn-primary" style="background: linear-gradient(135deg, #3b82f6, #6366f1); margin-top: 6px;">
           ⚡ สร้างไฟล์ ZIP & ดาวน์โหลดรูปภาพ
         </button>
@@ -161,6 +165,7 @@
 
     const saveDashBtn = ui.querySelector('#dl-save-dash-btn');
     const startZipBtn = ui.querySelector('#dl-start-zip-btn');
+    const hubBtn = ui.querySelector('#dl-hub-btn');
     const openDashBtn = ui.querySelector('#dl-open-dash-btn');
     const stopBtn = ui.querySelector('#dl-stop-btn');
     const closeBtn = ui.querySelector('#dl-close-btn');
@@ -194,6 +199,7 @@
       statusText.textContent = '🛑 กำลังหยุดการทำงาน...';
       stopBtn.style.display = 'none';
       saveDashBtn.style.display = 'flex';
+      hubBtn.style.display = 'flex';
       startZipBtn.style.display = 'flex';
       openDashBtn.style.display = 'flex';
     };
@@ -248,6 +254,7 @@
       setProgressBarPercent(0);
 
       saveDashBtn.style.display = 'none';
+      hubBtn.style.display = 'none';
       startZipBtn.style.display = 'none';
       openDashBtn.style.display = 'none';
       stopBtn.style.display = 'flex';
@@ -298,6 +305,98 @@
       isProcessing = false;
       stopBtn.style.display = 'none';
       saveDashBtn.style.display = 'flex';
+      hubBtn.style.display = 'flex';
+      startZipBtn.style.display = 'flex';
+      openDashBtn.style.display = 'flex';
+    };
+
+    // คำค้นของหน้าที่กำลังดึง: จากพารามิเตอร์ใน URL หรือช่องค้นหาบนหน้า (ใช้เดาหมวดในคลัง)
+    function currentSearchKeyword() {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        for (const k of ['keyword', 'q', 'search', 'query', 'k']) {
+          if (params.get(k)) return params.get(k).trim();
+        }
+      } catch (_) {}
+      const box = Array.from(document.querySelectorAll('input[type="search"], input[type="text"]'))
+        .find(i => i.offsetParent && i.value && !ui.contains(i));
+      return box ? box.value.trim() : '';
+    }
+
+    const sendMessage = (msg) => new Promise((resolve, reject) => {
+      try {
+        chrome.runtime.sendMessage(msg, (res) => {
+          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+          else resolve(res);
+        });
+      } catch (err) {
+        reject(err);
+      }
+    });
+
+    // 1b. ACTION: ส่งเข้าคลังโฆษณากลาง (Ad Hub) และบันทึกลงแดชบอร์ดในเครื่องด้วย
+    hubBtn.onclick = async () => {
+      if (isProcessing) return;
+
+      const hub = await sendMessage({ action: 'HUB_STATUS' }).catch(() => null);
+      if (!hub || !hub.connected) {
+        statusText.textContent = '🔌 ยังไม่ได้เชื่อม Ad Hub กำลังเปิดแดชบอร์ดให้ตั้งค่า...';
+        sendMessage({ action: 'OPEN_DASHBOARD', hash: '#tab-adhub' }).catch(() => {});
+        return;
+      }
+
+      detectedItems = ScraperService ? ScraperService.findProductItems() : [];
+      if (detectedItems.length === 0) {
+        alert('⚠️ ไม่พบสินค้าในหน้านี้ กรุณาเปิดหน้าข้อเสนอสินค้า Affiliate (Product Offer)');
+        return;
+      }
+
+      isProcessing = true;
+      isCancelled = false;
+      setProgressBarPercent(0);
+      saveDashBtn.style.display = 'none';
+      hubBtn.style.display = 'none';
+      startZipBtn.style.display = 'none';
+      openDashBtn.style.display = 'none';
+      stopBtn.style.display = 'flex';
+
+      try {
+        const keyword = currentSearchKeyword();
+        const scraped = await runScrapeOperation();
+
+        if (scraped.length > 0 && !isCancelled) {
+          setProgressBarPercent(90);
+          if (Storage) await Storage.mergeProducts(scraped);
+
+          statusText.textContent = `📤 กำลังส่ง ${scraped.length} สินค้าเข้าคลังโฆษณา...`;
+          const pageUrl = window.location.href;
+          const res = await sendMessage({
+            action: 'HUB_IMPORT',
+            keyword,
+            products: scraped.map(p => ({ ...p, pageUrl })),
+          });
+          if (!res || !res.success) throw new Error(res?.error || 'ส่งไม่สำเร็จ');
+
+          setProgressBarPercent(100);
+          statusText.textContent = `🎉 ส่งเข้าคลังแล้ว: ใหม่ ${res.added} · อัปเดตของเดิม ${res.updated}${res.skipped ? ` · ข้าม ${res.skipped} (เอาลิงก์ affiliate ไม่ได้)` : ''}`;
+          showInPageToast(`📤 ส่งเข้าคลังโฆษณา ใหม่ ${res.added} รายการ อัปเดต ${res.updated} รายการ`);
+        } else if (isCancelled) {
+          statusText.textContent = `🛑 หยุดการทำงานแล้ว (ยังไม่ได้ส่งเข้าคลัง)`;
+        }
+      } catch (err) {
+        console.error(err);
+        if (err.message && err.message.includes('Extension context invalidated')) {
+          statusText.textContent = `⚠️ ส่วนขยายเพิ่งอัปเดต กรุณารีเฟรช (F5) หน้านี้`;
+        } else {
+          statusText.textContent = `❌ ส่งเข้าคลังไม่สำเร็จ: ${err.message}`;
+          showInPageToast(`ส่งเข้าคลังไม่สำเร็จ: ${err.message}`, false);
+        }
+      }
+
+      isProcessing = false;
+      stopBtn.style.display = 'none';
+      saveDashBtn.style.display = 'flex';
+      hubBtn.style.display = 'flex';
       startZipBtn.style.display = 'flex';
       openDashBtn.style.display = 'flex';
     };
@@ -317,6 +416,7 @@
       setProgressBarPercent(0);
 
       saveDashBtn.style.display = 'none';
+      hubBtn.style.display = 'none';
       startZipBtn.style.display = 'none';
       openDashBtn.style.display = 'none';
       stopBtn.style.display = 'flex';
@@ -355,6 +455,7 @@
       isProcessing = false;
       stopBtn.style.display = 'none';
       saveDashBtn.style.display = 'flex';
+      hubBtn.style.display = 'flex';
       startZipBtn.style.display = 'flex';
       openDashBtn.style.display = 'flex';
     };
