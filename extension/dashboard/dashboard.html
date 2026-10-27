@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shopee Affiliate TH — แดชบอร์ดจัดการสินค้า & CSV</title>
+  <link rel="stylesheet" href="dashboard.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- SIDEBAR NAVIGATION -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="brand-badge">
+          <div class="brand-logo">
+            <span class="logo-icon">📦</span>
+          </div>
+          <div class="brand-meta">
+            <h1 class="brand-name">Shopee <span class="accent-text">Affiliate</span></h1>
+            <span class="brand-version">จัดการ CSV & สินค้า (TH)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Stats Pill -->
+      <div class="queue-status-banner">
+        <div class="status-indicator-dot active"></div>
+        <div class="status-meta">
+          <span class="status-label">ฐานข้อมูลในเครื่อง</span>
+          <span class="status-sub" id="sidebar-product-count">บันทึกไว้ 0 สินค้า</span>
+        </div>
+      </div>
+
+      <nav class="nav-menu">
+        <button class="nav-item active" data-tab="tab-products">
+          <span class="nav-icon">📋</span>
+          <span class="nav-label">รายการสินค้า</span>
+          <span class="nav-badge" id="badge-total-products">0</span>
+        </button>
+        <button class="nav-item" data-tab="tab-threads-generator">
+          <span class="nav-icon">🧵</span>
+          <span class="nav-label">สร้างแคปชัน Threads</span>
+          <span class="nav-badge" style="background: linear-gradient(135deg, #10b981, #059669);">Manual</span>
+        </button>
+        <button class="nav-item" data-tab="tab-import-export">
+          <span class="nav-icon">📁</span>
+          <span class="nav-label">นำเข้า & ส่งออก CSV</span>
+        </button>
+        <button class="nav-item" data-tab="tab-adhub">
+          <span class="nav-icon">📤</span>
+          <span class="nav-label">คลังโฆษณา (Ad Hub)</span>
+          <span class="nav-badge" id="adhub-nav-badge" style="background: #475569;">ปิด</span>
+        </button>
+        <button class="nav-item" data-tab="tab-guide">
+          <span class="nav-icon">💡</span>
+          <span class="nav-label">คู่มือการใช้งาน</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="stats-mini-card">
+          <div class="stat-row">
+            <span>พื้นที่จัดเก็บ</span>
+            <strong id="db-storage-usage">ในเครื่อง (Chrome Storage)</strong>
+          </div>
+        </div>
+        <div class="author-credits">
+          <span>Thai Edition • <b>ShopiThread TH</b></span>
+          <span class="client-mode-badge">100% Client-Side</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT AREA -->
+    <main class="main-content">
+      
+      <!-- TOP HEADER -->
+      <header class="top-header">
+        <div class="header-breadcrumb">
+          <span class="parent-title">แดชบอร์ด</span>
+          <span class="separator">/</span>
+          <span class="current-title" id="active-tab-title">รายการสินค้า & CSV</span>
+        </div>
+        
+        <div class="header-actions">
+          <button id="btn-header-import-csv" class="btn-outline-glass">
+            <span>📥 นำเข้า CSV</span>
+          </button>
+          <button id="btn-header-export-csv" class="btn-primary-gradient">
+            <span>📤 ส่งออกไฟล์ CSV</span>
+          </button>
+          <button id="btn-header-download-zip" class="btn-outline-glass">
+            <span>📦 ดาวน์โหลดรูปทั้งหมด (ZIP)</span>
+          </button>
+          <a href="https://affiliate.shopee.co.th/offer/product_offer" target="_blank" class="btn-outline-glass">
+            <span>🌐 เปิด Shopee Affiliate TH</span>
+          </a>
+        </div>
+      </header>
+
+      <!-- TAB 1: รายการสินค้า (PRODUCTS TABLE) -->
+      <section id="tab-products" class="tab-pane active">
+        
+        <!-- Stat Cards Grid -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon-wrap icon-primary">📦</div>
+            <div class="stat-details">
+              <span class="stat-title">สินค้าทั้งหมด</span>
+              <h2 class="stat-value" id="stat-total-products">0</h2>
+              <span class="stat-trend">บันทึกในฐานข้อมูล</span>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon-wrap icon-amber">💰</div>
+            <div class="stat-details">
+              <span class="stat-title">มูลค่าสินค้ารวม</span>
+              <h2 class="stat-value" id="stat-total-value">฿0</h2>
+              <span class="stat-trend">ยอดรวมราคาสินค้า</span>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon-wrap icon-emerald">🏷️</div>
+            <div class="stat-details">
+              <span class="stat-title">ค่าคอมมิชชันเฉลี่ย</span>
+              <h2 class="stat-value" id="stat-avg-commission">0%</h2>
+              <span class="stat-trend">อัตราค่าคอม Shopee Affiliate</span>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon-wrap icon-purple">📈</div>
+            <div class="stat-details">
+              <span class="stat-title">ยอดขายรวม</span>
+              <h2 class="stat-value" id="stat-total-sold">0+</h2>
+              <span class="stat-trend">ปริมาณการขายสินค้า</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Table Toolbar -->
+        <div class="table-toolbar">
+          <div class="toolbar-left">
+            <div class="search-box">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="product-search-input" placeholder="ค้นหาชื่อสินค้า, ลิงก์, รหัส ID...">
+              <button id="search-clear-btn" class="search-clear-btn" style="display:none;">✕</button>
+            </div>
+
+            <div class="filter-group">
+              <select id="product-sort-filter" class="custom-select">
+                <option value="newest" selected>เรียงตาม: ล่าสุด</option>
+                <option value="oldest">เรียงตาม: เก่าสุด</option>
+                <option value="price_high">ราคาสูงสุด</option>
+                <option value="price_low">ราคาต่ำสุด</option>
+                <option value="title_asc">ชื่อสินค้า (ก-ฮ / A-Z)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="toolbar-right">
+            <button id="btn-add-manual-product" class="btn-toolbar btn-outline">
+              <span>➕ เพิ่มสินค้า</span>
+            </button>
+            <button id="btn-clear-all-products" class="btn-toolbar btn-danger-outline">
+              <span>🗑️ ลบทั้งหมด</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Products Table Container -->
+        <div class="table-responsive-container">
+          <table class="data-table" id="products-table">
+            <thead>
+              <tr>
+                <th style="width: 50px; text-align: center;">ลำดับ</th>
+                <th style="width: 80px; text-align: center;">รูปภาพ</th>
+                <th style="min-width: 260px;">รายละเอียดสินค้า Shopee</th>
+                <th style="width: 140px;">ราคา</th>
+                <th style="width: 120px;">คอมมิชชัน / ยอดขาย</th>
+                <th style="min-width: 220px;">ลิงก์สั้น Affiliate</th>
+                <th style="width: 130px; text-align: center;">จัดการ</th>
+              </tr>
+            </thead>
+            <tbody id="products-table-body">
+              <!-- Rendered dynamically -->
+            </tbody>
+          </table>
+
+          <!-- Empty State -->
+          <div class="empty-table-state" id="empty-table-state">
+            <div class="empty-icon">📭</div>
+            <h3 class="empty-title">ยังไม่มีข้อมูลสินค้า Shopee</h3>
+            <p class="empty-desc">
+              คลิกปุ่ม <b>📦 เครื่องมือ Affiliate</b> บนหน้าข้อเสนอสินค้า Shopee Affiliate เพื่อดึงข้อมูลสินค้า หรือนำเข้าไฟล์ CSV ของคุณที่นี่
+            </p>
+            <div class="empty-actions">
+              <button id="empty-import-btn" class="btn-toolbar btn-outline">
+                <span>📥 นำเข้าไฟล์ CSV</span>
+              </button>
+              <a href="https://affiliate.shopee.co.th/offer/product_offer" target="_blank" class="btn-toolbar btn-primary-gradient">
+                <span>🌐 เปิด Shopee Affiliate TH</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: สร้างแคปชัน THREADS -->
+      <section id="tab-threads-generator" class="tab-pane">
+        <div class="threads-generator-grid">
+          <!-- Left Column: Settings & Controls -->
+          <div class="threads-config-card">
+            <div class="card-header">
+              <h3 class="card-title">🧵 เครื่องมือสร้างแคปชัน Threads</h3>
+              <p class="card-desc">เลือกสินค้า สุ่มข้อความหลากหลายรูปแบบด้วย Spintax และปรับแต่งเทมเพลตแคปชันป้ายยา</p>
+            </div>
+            <div class="card-body">
+              <!-- Product Selector -->
+              <div class="form-group">
+                <label for="threads-product-select">📦 เลือกสินค้าจากฐานข้อมูล:</label>
+                <select id="threads-product-select" class="custom-select" style="width: 100%;">
+                  <option value="">-- เลือกสินค้า Shopee --</option>
+                </select>
+              </div>
+
+              <!-- Template Selector -->
+              <div class="form-group">
+                <label for="threads-template-select">🎨 เลือกสไตล์เทมเพลตแคปชัน:</label>
+                <select id="threads-template-select" class="custom-select" style="width: 100%;">
+                  <option value="racun_shopee">สไตล์ป้ายยา Shopee / กันเอง (Clean)</option>
+                  <option value="edukasi_review">สไตล์รีวิวจริงใจ / Honest Review (Clean)</option>
+                  <option value="promo_diskon">สไตล์แจ้งเตือนโปรโมชั่น / Flash Sale (Clean)</option>
+                  <option value="solusi_praktis">สไตล์ตัวช่วยแก้ปัญหา & Lifehack (Clean)</option>
+                  <option value="simple_direct">สไตล์สั้นกระชับ & แปะพิกัดทันที (Clean)</option>
+                </select>
+              </div>
+
+              <!-- Category Hashtag -->
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label for="threads-hashtag-category">หมวดหมู่แฮชแท็ก:</label>
+                  <select id="threads-hashtag-category" class="custom-select" style="width: 100%;">
+                    <option value="viral" selected>ไวรัล & ป้ายยา Shopee</option>
+                    <option value="fashion">แฟชั่น & OOTD</option>
+                    <option value="elektronik">อิเล็กทรอนิกส์ & แกดเจ็ต</option>
+                    <option value="home_living">ของแต่งบ้าน & ของใช้</option>
+                    <option value="beauty">ความงาม & สกินแคร์</option>
+                  </select>
+                </div>
+                <div class="form-group flex-1">
+                  <label for="threads-hashtag-count">จำนวนแฮชแท็ก:</label>
+                  <select id="threads-hashtag-count" class="custom-select" style="width: 100%;">
+                    <option value="2">2 แฮชแท็ก</option>
+                    <option value="3" selected>3 แฮชแท็ก</option>
+                    <option value="4">4 แฮชแท็ก</option>
+                    <option value="5">5 แฮชแท็ก</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Raw / Editable Caption Textarea -->
+              <div class="form-group">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                  <label for="threads-caption-editor" style="margin-bottom: 0;">📝 ข้อความแคปชัน (แก้ไขได้):</label>
+                  <div style="display: flex; gap: 6px;">
+                    <button type="button" id="btn-threads-clean-emoji" class="btn-toolbar btn-outline" style="padding: 4px 8px; font-size: 11px;" title="ลบอิโมจิหรือสัญลักษณ์พิเศษออก">
+                      <span>🧹 ล้างสัญลักษณ์</span>
+                    </button>
+                    <button type="button" id="btn-threads-spin-caption" class="btn-toolbar btn-outline" style="padding: 4px 8px; font-size: 11px;">
+                      <span>🎲 สุ่มข้อความใหม่</span>
+                    </button>
+                  </div>
+                </div>
+                <textarea id="threads-caption-editor" rows="7" class="threads-textarea" placeholder="เลือกสินค้าหรือพิมพ์แคปชัน Threads ที่นี่..."></textarea>
+                <div class="threads-char-counter">
+                  <span id="threads-char-count">0 / 500 ตัวอักษร</span>
+                  <span id="threads-char-status" class="status-ok">รองรับบน Threads</span>
+                </div>
+              </div>
+
+              <!-- Action Buttons -->
+              <div class="threads-action-buttons">
+                <button type="button" id="btn-threads-copy-caption" class="btn-toolbar btn-primary-gradient flex-1">
+                  <span>📋 คัดลอกแคปชัน Threads</span>
+                </button>
+                <button type="button" id="btn-threads-open-web" class="btn-toolbar btn-outline flex-1">
+                  <span>🔗 เปิด Threads.net</span>
+                </button>
+                <button type="button" id="btn-threads-fill-tab" class="btn-toolbar btn-outline" style="border-color: rgba(16, 185, 129, 0.4); color: #34d399;" title="เปิด Threads และวางแคปชันลงในกล่องข้อความโดยไม่กดโพสต์อัตโนมัติ">
+                  <span>✍️ ส่งข้อความไปที่แท็บ Threads</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Column: Live Mockup / Preview Threads -->
+          <div class="threads-preview-card">
+            <div class="card-header">
+              <h3 class="card-title">📱 ตัวอย่างการแสดงผลโพสต์บน Threads</h3>
+              <p class="card-desc">จำลองหน้าตาโพสต์เมื่อนำไปเผยแพร่บนแอปหรือเว็บ Threads</p>
+            </div>
+            <div class="card-body">
+              <!-- Threads Post Mockup Box -->
+              <div class="threads-mockup-wrapper">
+                <div class="threads-mockup-header">
+                  <div class="threads-avatar-ring">
+                    <img id="preview-threads-avatar" src="../icons/icon48.png" alt="Avatar" class="threads-avatar-img">
+                  </div>
+                  <div class="threads-user-meta">
+                    <div class="threads-username-row">
+                      <strong class="threads-username">shopee_affiliate_th</strong>
+                      <span class="threads-badge-verified">✓</span>
+                      <span class="threads-timestamp">1 นาที</span>
+                    </div>
+                    <span class="threads-handle">ป้ายยา & พิกัดของดี Shopee</span>
+                  </div>
+                  <div class="threads-more-icon">•••</div>
+                </div>
+
+                <div class="threads-mockup-content">
+                  <!-- Text Body -->
+                  <div id="preview-threads-text" class="threads-post-text">
+                    เลือกสินค้าทางด้านซ้ายเพื่อดูตัวอย่างโพสต์บน Threads...
+                  </div>
+
+                  <!-- Image Preview Box -->
+                  <div id="preview-threads-image-wrap" class="threads-image-wrap" style="display: none;">
+                    <img id="preview-threads-image" src="" alt="รูปภาพสินค้า" class="threads-media-img">
+                  </div>
+
+                  <!-- Product Link Card Component -->
+                  <div id="preview-threads-link-card" class="threads-link-card" style="display: none;">
+                    <div class="threads-link-info">
+                      <span class="threads-link-site">s.shopee.co.th</span>
+                      <h4 id="preview-link-title" class="threads-link-headline">ลิงก์สินค้า Shopee Affiliate</h4>
+                      <p id="preview-link-sub" class="threads-link-meta">ดูรายละเอียดและโปรโมชั่นส่วนลด</p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Footer Engagement Icons -->
+                <div class="threads-mockup-footer">
+                  <div class="threads-engagement-icons">
+                    <span title="ถูกใจ">🤍</span>
+                    <span title="ตอบกลับ">💬</span>
+                    <span title="รีโพสต์">🔁</span>
+                    <span title="แชร์">✈️</span>
+                  </div>
+                  <div class="threads-footer-meta">
+                    <span>ควบคุมโดยผู้ใช้ 100% (ปลอดภัย ไม่โดนแบน)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: IMPORT & EXPORT CSV -->
+      <section id="tab-import-export" class="tab-pane">
+        <div class="settings-grid">
+          <!-- Card 1: Import CSV -->
+          <div class="settings-card">
+            <div class="card-header">
+              <h3 class="card-title">📥 นำเข้าไฟล์ CSV สินค้า</h3>
+              <p class="card-desc">อัปโหลดไฟล์ CSV สินค้า Shopee Affiliate เพื่อเพิ่มเข้าสู่ฐานข้อมูลในแดชบอร์ด</p>
+            </div>
+            <div class="card-body">
+              <div class="csv-upload-dropzone" id="csv-dropzone">
+                <input type="file" id="csv-file-input" accept=".csv" style="display: none;">
+                <div class="dropzone-icon">📁</div>
+                <h4 class="dropzone-title">คลิกหรือลากไฟล์ CSV มาวางที่นี่</h4>
+                <p class="dropzone-subtitle">รองรับรูปแบบ CSV มาตรฐาน (ลำดับ, ชื่อสินค้า, ราคา, คอมมิชชัน, ยอดขาย, ลิงก์ Affiliate, URL รูปภาพ)</p>
+                <button type="button" id="btn-browse-csv" class="btn-toolbar btn-outline" style="margin-top: 12px;">
+                  <span>เลือกไฟล์ CSV</span>
+                </button>
+              </div>
+
+              <div id="csv-import-preview-box" class="import-preview-box" style="display: none;">
+                <div class="preview-header">
+                  <span id="csv-preview-filename">file.csv</span>
+                  <span id="csv-preview-count" class="badge-tag">พบ 0 รายการ</span>
+                </div>
+                <div class="preview-table-wrap">
+                  <table class="preview-table">
+                    <thead>
+                      <tr>
+                        <th>ชื่อสินค้า</th>
+                        <th>ราคา</th>
+                        <th>คอมมิชชัน</th>
+                        <th>ลิงก์ Affiliate</th>
+                      </tr>
+                    </thead>
+                    <tbody id="csv-preview-tbody"></tbody>
+                  </table>
+                </div>
+                <div class="preview-actions">
+                  <button id="btn-cancel-import" class="btn-toolbar btn-outline">ยกเลิก</button>
+                  <button id="btn-confirm-import" class="btn-toolbar btn-primary-gradient">💾 บันทึกลงฐานข้อมูล</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 2: Export CSV & ZIP -->
+          <div class="settings-card">
+            <div class="card-header">
+              <h3 class="card-title">📤 ส่งออก & สำรองข้อมูล</h3>
+              <p class="card-desc">ดาวน์โหลดสินค้าทั้งหมดในฐานข้อมูลออกมาเป็นไฟล์รูปแบบต่างๆ</p>
+            </div>
+            <div class="card-body export-options-list">
+              <div class="export-option-item">
+                <div class="export-info">
+                  <span class="export-icon">📊</span>
+                  <div>
+                    <h4 class="export-name">ส่งออกไฟล์ CSV (.csv)</h4>
+                    <p class="export-desc">ไฟล์ตารางครบถ้วนพร้อมชื่อสินค้า ราคา ลิงก์ Affiliate และ URL รูปภาพ (เปิดใน Excel ได้ทันที)</p>
+                  </div>
+                </div>
+                <button id="btn-export-csv-direct" class="btn-toolbar btn-primary-gradient">
+                  <span>ดาวน์โหลด CSV</span>
+                </button>
+              </div>
+
+              <div class="export-option-item">
+                <div class="export-info">
+                  <span class="export-icon">📋</span>
+                  <div>
+                    <h4 class="export-name">รายการลิงก์ Affiliate (.txt)</h4>
+                    <p class="export-desc">ไฟล์ข้อความรวบรวมลิงก์สั้น Affiliate พร้อมนำไปแชร์ต่อ</p>
+                  </div>
+                </div>
+                <button id="btn-export-txt-direct" class="btn-toolbar btn-outline">
+                  <span>ดาวน์โหลด TXT</span>
+                </button>
+              </div>
+
+              <div class="export-option-item">
+                <div class="export-info">
+                  <span class="export-icon">📦</span>
+                  <div>
+                    <h4 class="export-name">แพ็กเกจรูปภาพ & ลิงก์ (ZIP)</h4>
+                    <p class="export-desc">ดาวน์โหลดรูปภาพสินค้าความละเอียดสูงทั้งหมดพร้อมไฟล์ CSV และ TXT ในไฟล์ ZIP เดียว</p>
+                  </div>
+                </div>
+                <button id="btn-export-zip-direct" class="btn-toolbar btn-outline">
+                  <span>ดาวน์โหลด ZIP</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: คู่มือการใช้งาน -->
+      <section id="tab-adhub" class="tab-pane">
+        <div class="settings-grid">
+          <div class="settings-card">
+            <div class="card-header">
+              <h3 class="card-title">🔌 เชื่อมคลังโฆษณากลาง (Ad Hub)</h3>
+              <p class="card-desc">ใช้บัญชีแอดมินของ Ad Hub แล้วปุ่ม "ส่งเข้าคลังโฆษณา" บนหน้า Shopee จะส่งสินค้าเข้าคลังได้ทันที ไม่ต้อง export CSV</p>
+            </div>
+            <div class="card-body">
+              <div id="adhub-connected" style="display: none;">
+                <p style="margin: 0 0 6px;">✅ เชื่อมแล้วด้วย <b id="adhub-email"></b></p>
+                <p class="card-desc" style="margin: 0 0 14px; word-break: break-all;" id="adhub-url"></p>
+                <button type="button" id="adhub-disconnect" class="btn-toolbar btn-outline">ตัดการเชื่อมต่อ</button>
+              </div>
+              <form id="adhub-form" autocomplete="off">
+                <div class="form-group">
+                  <label for="adhub-input-url">Project URL ของ Supabase</label>
+                  <input type="url" id="adhub-input-url" placeholder="https://xxxx.supabase.co" required>
+                </div>
+                <div class="form-group">
+                  <label for="adhub-input-key">Publishable key (หรือ anon key)</label>
+                  <input type="text" id="adhub-input-key" placeholder="sb_publishable_..." required>
+                </div>
+                <div class="form-group">
+                  <label for="adhub-input-email">อีเมลแอดมิน</label>
+                  <input type="email" id="adhub-input-email" required>
+                </div>
+                <div class="form-group">
+                  <label for="adhub-input-password">รหัสผ่าน (ไม่ถูกบันทึกไว้ ใช้แค่ตอนล็อกอิน)</label>
+                  <input type="password" id="adhub-input-password" required>
+                </div>
+                <button type="submit" id="adhub-connect" class="btn-toolbar btn-primary-gradient">เชื่อมต่อ</button>
+              </form>
+              <p id="adhub-message" class="card-desc" style="margin-top: 12px;"></p>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <div class="card-header">
+              <h3 class="card-title">📦 ส่งสินค้าที่บันทึกไว้เข้าคลัง</h3>
+              <p class="card-desc">ส่งสินค้าทั้งหมดในแดชบอร์ดนี้เข้าคลังครั้งเดียว ของที่มีในคลังแล้วจะอัปเดตราคาและค่าคอมให้ ไม่สร้างซ้ำ สินค้าใหม่จะอยู่ในสถานะ "รอตรวจ"</p>
+            </div>
+            <div class="card-body">
+              <button type="button" id="adhub-send-all" class="btn-toolbar btn-primary-gradient" disabled>📤 ส่งทั้งหมดเข้าคลัง</button>
+              <p id="adhub-send-result" class="card-desc" style="margin-top: 12px;"></p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-guide" class="tab-pane">
+        <div class="settings-card">
+          <div class="card-header">
+            <h3 class="card-title">💡 คู่มือการใช้งานส่วนขยาย Shopee Affiliate TH & CSV Dashboard</h3>
+            <p class="card-desc">ขั้นตอนง่ายๆ ในการดึงข้อมูลสินค้า Shopee ไทย และสร้างแคปชันป้ายยาบน Threads</p>
+          </div>
+          <div class="card-body guide-steps-list">
+            <div class="guide-step">
+              <div class="step-num">1</div>
+              <div class="step-content">
+                <h4>เปิดหน้าเว็บ Shopee Affiliate ประเทศไทย</h4>
+                <p>เข้าสู่ระบบบัญชี Affiliate ของคุณที่ <a href="https://affiliate.shopee.co.th/offer/product_offer" target="_blank">affiliate.shopee.co.th/offer/product_offer</a></p>
+              </div>
+            </div>
+
+            <div class="guide-step">
+              <div class="step-num">2</div>
+              <div class="step-content">
+                <h4>คลิกปุ่ม "📦 เครื่องมือ Affiliate"</h4>
+                <p>ที่มุมขวาล่างของหน้าเว็บ Shopee คลิกปุ่มลอยสีส้มเพื่อเปิดแผงควบคุมการดึงข้อมูล</p>
+              </div>
+            </div>
+
+            <div class="guide-step">
+              <div class="step-num">3</div>
+              <div class="step-content">
+                <h4>เลือกจำนวนหน้า & กดบันทึก</h4>
+                <p>เลือกจำนวนหน้าที่ต้องการดึงข้อมูล (1 ถึง 10 หน้า) แล้วคลิก <b>"💾 บันทึกลงแดชบอร์ด & CSV"</b> หรือ <b>"⚡ สร้างไฟล์ ZIP"</b></p>
+              </div>
+            </div>
+
+            <div class="guide-step">
+              <div class="step-num">4</div>
+              <div class="step-content">
+                <h4>จัดการข้อมูล & สร้างแคปชัน Threads</h4>
+                <p>สินค้าที่บันทึกทั้งหมดจะแสดงในตารางนี้ คุณสามารถกดปุ่ม <b>🧵</b> เพื่อสร้างแคปชันป้ายยาภาษาไทย คัดลอกลิงก์ หรือส่งออกไฟล์ CSV ได้ทุกเมื่อ</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- MODAL: ADD / EDIT PRODUCT -->
+  <div class="modal-overlay" id="modal-product-edit">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-edit-title">✏️ แก้ไขข้อมูลสินค้า</h3>
+        <button class="modal-close-btn" id="modal-edit-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="form-product-edit">
+          <input type="hidden" id="edit-product-id">
+
+          <div class="form-group">
+            <label for="edit-product-title">ชื่อสินค้า *</label>
+            <input type="text" id="edit-product-title" required placeholder="ชื่อสินค้า Shopee...">
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="edit-product-price">ราคา (฿) *</label>
+              <input type="text" id="edit-product-price" required placeholder="฿199">
+            </div>
+            <div class="form-group flex-1">
+              <label for="edit-product-commission">ค่าคอมมิชชัน</label>
+              <input type="text" id="edit-product-commission" placeholder="10% / ฿19.90">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="edit-product-sold">ยอดขาย</label>
+              <input type="text" id="edit-product-sold" placeholder="ขายแล้ว 1พัน+ ชิ้น">
+            </div>
+            <div class="form-group flex-1">
+              <label for="edit-product-image">URL รูปภาพสินค้า</label>
+              <input type="url" id="edit-product-image" placeholder="https://down-th.img.susercontent.com/file/...">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="edit-product-shortlink">ลิงก์สั้น Affiliate (s.shopee.co.th / shope.ee) *</label>
+            <input type="url" id="edit-product-shortlink" required placeholder="https://s.shopee.co.th/...">
+          </div>
+
+          <div class="form-group">
+            <label for="edit-product-longlink">ลิงก์สินค้าต้นฉบับ Shopee</label>
+            <input type="url" id="edit-product-longlink" placeholder="https://shopee.co.th/product/...">
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn-toolbar btn-outline" id="modal-edit-cancel">ยกเลิก</button>
+            <button type="submit" class="btn-toolbar btn-primary-gradient">💾 บันทึกการเปลี่ยนแปลง</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: IMAGE PREVIEW -->
+  <div class="modal-overlay" id="modal-image-preview">
+    <div class="modal-card image-preview-card">
+      <div class="modal-header">
+        <h3 class="modal-title" id="img-preview-title">ตัวอย่างรูปภาพความละเอียดสูง (HD)</h3>
+        <button class="modal-close-btn" id="modal-img-close">✕</button>
+      </div>
+      <div class="modal-body text-center">
+        <img id="img-preview-target" src="" alt="Preview HD" class="full-preview-image">
+        <div style="margin-top: 12px;">
+          <a id="img-preview-download-link" href="#" target="_blank" class="btn-toolbar btn-primary-gradient" style="display: inline-flex;">
+            <span>📥 ดาวน์โหลดรูปภาพขนาดเต็ม</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div id="dashboard-toast" class="dashboard-toast">
+    <span class="toast-icon">✅</span>
+    <span class="toast-message" id="toast-message">การแจ้งเตือน</span>
+  </div>
+
+  <script src="../libs/jszip.min.js"></script>
+  <script src="../libs/storage-service.js"></script>
+  <script src="../libs/csv-service.js"></script>
+  <script src="../libs/threads-content-service.js"></script>
+  <script src="dashboard.js"></script>
+  <script src="../libs/hub-service.js"></script>
+  <script src="adhub-tab.js"></script>
+</body>
+</html>

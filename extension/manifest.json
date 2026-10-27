@@ -1,0 +1,86 @@
+{
+  "manifest_version": 3,
+  "name": "ShopiThread TH - Shopee Affiliate & Threads AutoCraft (ภาษาไทย)",
+  "short_name": "ShopiThread TH",
+  "version": "1.0.0",
+  "description": "ส่วนขยายครบวงจรสำหรับ Shopee Affiliate ประเทศไทย: ดึงรูปสินค้า HD, สร้างลิงก์สั้นอัตโนมัติ, จัดการฐานข้อมูล CSV และสร้างแคปชัน Threads ไวรัล",
+  "author": "sodikinnaa",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Shopee Affiliate Downloader & CSV Dashboard (TH)",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "permissions": [
+    "activeTab",
+    "storage",
+    "downloads",
+    "tabs"
+  ],
+  "host_permissions": [
+    "*://affiliate.shopee.co.th/*",
+    "*://*.shopee.co.th/*",
+    "*://shopee.co.th/*",
+    "*://affiliate.shopee.co.id/*",
+    "*://*.shopee.co.id/*",
+    "*://shopee.co.id/*",
+    "*://*.shopee.com/*",
+    "*://shopee.com/*",
+    "*://*.susercontent.com/*",
+    "*://*.shopeemobile.com/*",
+    "*://*.threads.net/*",
+    "*://threads.net/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://affiliate.shopee.co.th/*",
+        "*://*.shopee.co.th/*",
+        "*://shopee.co.th/*",
+        "*://affiliate.shopee.co.id/*",
+        "*://*.shopee.co.id/*",
+        "*://shopee.co.id/*",
+        "*://*.shopee.com/*",
+        "*://shopee.com/*"
+      ],
+      "js": [
+        "libs/jszip.min.js",
+        "libs/storage-service.js",
+        "libs/csv-service.js",
+        "libs/shopee-scraper-service.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icons/*",
+        "content.css",
+        "dashboard/*",
+        "popup/*",
+        "libs/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}

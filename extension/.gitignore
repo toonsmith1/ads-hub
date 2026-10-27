@@ -1,0 +1,24 @@
+# Operating System Files
+.DS_Store
+Thumbs.db
+*.tmp
+*.log
+
+# Node & Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Release / Build ZIPs
+dist/
+*.zip
+!libs/*.zip
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sublime-workspace
