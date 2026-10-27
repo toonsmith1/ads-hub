@@ -1,0 +1,4 @@
+# ใช้เฉพาะตอน deploy ด้วย Supabase CLI (supabase functions deploy go)
+# คนที่กดโฆษณาไม่ได้ล็อกอิน จึงต้องปิดการตรวจ JWT ของฟังก์ชัน go
+[functions.go]
+verify_jwt = false
