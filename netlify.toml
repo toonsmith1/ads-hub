@@ -1,0 +1,9 @@
+# หน้าจัดการเป็นไฟล์ static ล้วน ไม่มีขั้น build
+[build]
+  publish = "web"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"

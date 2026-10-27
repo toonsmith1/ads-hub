@@ -1,0 +1,764 @@
+// ==========================================
+// หน้าจัดการ Ad Hub: คลังสินค้า ค้นหา กรอง หมวด แก้ทีละหลายรายการ นำเข้า
+// ข้อมูลทั้งหมดผ่าน HubAPI (js/api.js) แต่ละส่วนของหน้ามีกล่องของตัวเอง วาดใหม่เฉพาะส่วนที่เปลี่ยน
+// ==========================================
+const STATUS = {
+  pending: { label: "รอตรวจ", dot: "bg-amber-400", pill: "bg-amber-50 text-amber-700 ring-amber-200" },
+  active: { label: "กำลังแสดง", dot: "bg-emerald-500", pill: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
+  paused: { label: "พักไว้", dot: "bg-slate-400", pill: "bg-slate-100 text-slate-600 ring-slate-200" },
+  expired: { label: "หมดอายุ", dot: "bg-rose-400", pill: "bg-rose-50 text-rose-700 ring-rose-200" },
+};
+const SORTS = [
+  ["updated", "แก้ไขล่าสุด"], ["created", "เพิ่มล่าสุด"], ["commission", "ค่าคอมสูงสุด"],
+  ["priceAsc", "ราคาต่ำไปสูง"], ["priceDesc", "ราคาสูงไปต่ำ"], ["title", "ชื่อ ก-ฮ"],
+];
+const PAGE_SIZE = 48;
+const IMPORT_CHUNK = 200;
+
+const state = {
+  admin: false,
+  cats: [],
+  counts: [],
+  sources: [],
+  f: { q: "", status: "all", cat: "all", source: "", minCommission: "", minPrice: "", maxPrice: "", sort: "updated" },
+  page: 1,
+  rows: [],
+  total: 0,
+  loading: false,
+  selected: new Set(),
+  view: localGet("hub.view") || "grid",
+  drawer: null,   // สินค้าที่กำลังแก้ (สำเนา)
+  modal: null,    // "import" | "categories"
+  importer: null,
+};
+
+// ---------- เครื่องมือเล็กๆ ----------
+function localGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
+function localSet(k, v) { try { localStorage.setItem(k, v); } catch (_) { /* ไม่มีที่เก็บก็ใช้ค่าเริ่มต้น */ } }
+const $ = (sel) => document.querySelector(sel);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const fmtNum = (v) => (v === null || v === undefined || v === "" ? "" : Number(v).toLocaleString("th-TH", { maximumFractionDigits: 2 }));
+const priceLabel = (p) => p.price_text || (p.price != null ? `฿${fmtNum(p.price)}` : "-");
+const catById = (id) => state.cats.find(c => c.id === id);
+const catName = (id) => catById(id)?.name || "";
+
+function toast(msg, kind = "ok") {
+  const el = document.createElement("div");
+  el.className = `px-4 py-2.5 rounded-lg shadow-lg text-sm text-white ${kind === "error" ? "bg-rose-600" : "bg-slate-900"}`;
+  el.textContent = msg;
+  $("#toasts").appendChild(el);
+  setTimeout(() => el.remove(), kind === "error" ? 6000 : 3000);
+}
+
+async function guard(fn, okMsg) {
+  try {
+    const out = await fn();
+    if (okMsg) toast(okMsg);
+    return out;
+  } catch (err) {
+    console.error(err);
+    toast(`ทำไม่สำเร็จ: ${err.message}`, "error");
+    return undefined;
+  }
+}
+
+function debounce(fn, ms) {
+  let t;
+  return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+}
+
+// ---------- เริ่มต้น / ล็อกอิน ----------
+async function boot() {
+  if (!HubAPI.configured) return renderSetupNeeded();
+  const session = await guard(() => HubAPI.session());
+  if (!session) return renderLogin();
+  state.admin = await guard(() => HubAPI.isAdmin());
+  if (!state.admin) return renderNotAdmin(session);
+  renderShell();
+  await Promise.all([loadCats(), loadSources()]);
+  await refresh();
+}
+
+function centered(inner) {
+  $("#app").innerHTML = `<div class="min-h-screen grid place-items-center p-4"><div class="w-full max-w-sm bg-white rounded-2xl border border-slate-200 shadow-sm p-6">${inner}</div></div>`;
+}
+
+function renderSetupNeeded() {
+  centered(`<h1 class="text-lg font-semibold">ยังไม่ได้ตั้งค่า Supabase</h1>
+    <p class="mt-2 text-sm text-slate-600">ใส่ Project URL และ Publishable key ในไฟล์ <code class="px-1 bg-slate-100 rounded">web/config.js</code> ตามขั้นตอนใน README</p>`);
+}
+
+function renderLogin() {
+  centered(`<div class="flex items-center gap-2 mb-5">${logo()}<span class="text-lg font-semibold">Ad Hub</span></div>
+    <form id="loginForm" class="space-y-3">
+      <label class="block"><span class="text-sm text-slate-600">อีเมล</span>
+        <input name="email" type="email" required autocomplete="username" class="${INPUT} mt-1 w-full"></label>
+      <label class="block"><span class="text-sm text-slate-600">รหัสผ่าน</span>
+        <input name="password" type="password" required autocomplete="current-password" class="${INPUT} mt-1 w-full"></label>
+      <button class="${BTN_PRIMARY} w-full h-10">เข้าสู่ระบบ</button>
+    </form>`);
+  $("#loginForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const ok = await guard(() => HubAPI.signIn(fd.get("email"), fd.get("password")));
+    if (ok) boot();
+  };
+}
+
+function renderNotAdmin(session) {
+  centered(`<h1 class="text-lg font-semibold">บัญชีนี้ยังไม่ใช่แอดมิน</h1>
+    <p class="mt-2 text-sm text-slate-600">รันคำสั่งนี้ใน SQL Editor ของ Supabase หนึ่งครั้ง แล้วรีเฟรชหน้านี้</p>
+    <pre class="mt-3 p-3 bg-slate-900 text-slate-100 rounded-lg text-xs whitespace-pre-wrap break-all">insert into hub_admins (user_id, email)
+select id, email from auth.users where email = '${esc(session.user?.email || "")}';</pre>
+    <button data-act="signout" class="${BTN} mt-4 w-full h-9">ออกจากระบบ</button>`);
+  $("#app").onclick = (e) => { if (e.target.closest("[data-act=signout]")) HubAPI.signOut().then(boot); };
+}
+
+// ---------- โครงหน้า ----------
+const INPUT = "h-9 px-3 rounded-lg border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500";
+const BTN = "inline-flex items-center justify-center gap-1.5 px-3 rounded-lg border border-slate-300 bg-white text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50";
+const BTN_PRIMARY = "inline-flex items-center justify-center gap-1.5 px-4 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold disabled:opacity-50";
+const BTN_DANGER = "inline-flex items-center justify-center gap-1.5 px-3 rounded-lg border border-rose-200 bg-white text-sm text-rose-600 hover:bg-rose-50";
+
+function logo() {
+  return `<span class="w-8 h-8 rounded-lg bg-brand-600 text-white grid place-items-center font-bold text-sm">AH</span>`;
+}
+
+function renderShell() {
+  $("#app").innerHTML = `
+    <header class="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200">
+      <div class="h-16 px-4 lg:px-6 flex items-center gap-4">
+        <div class="flex items-center gap-2 shrink-0">${logo()}<span class="font-semibold hidden sm:inline">Ad Hub</span></div>
+        <div class="relative flex-1 max-w-2xl">
+          <svg class="absolute left-3 top-2.5 w-4 h-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 3.4 9.83l3.64 3.63a.75.75 0 1 0 1.06-1.06l-3.63-3.64A5.5 5.5 0 0 0 9 3.5ZM5 9a4 4 0 1 1 8 0 4 4 0 0 1-8 0Z" clip-rule="evenodd"/></svg>
+          <input id="search" type="search" placeholder="ค้นหาชื่อสินค้า ร้าน หรือโน้ต  ( / )" class="${INPUT} w-full pl-9 h-10" autocomplete="off">
+        </div>
+        <button data-act="open-import" class="${BTN_PRIMARY} h-10 shrink-0">+ นำเข้าสินค้า</button>
+        <button data-act="signout" class="${BTN} h-10 shrink-0 hidden md:inline-flex">ออกจากระบบ</button>
+      </div>
+    </header>
+    <div class="flex">
+      <aside id="sidebar" class="hidden lg:block w-64 shrink-0 border-r border-slate-200 bg-white min-h-[calc(100vh-4rem)] sticky top-16 self-start max-h-[calc(100vh-4rem)] overflow-y-auto"></aside>
+      <main class="flex-1 min-w-0 px-4 lg:px-6 py-5">
+        <div id="filters"></div>
+        <div id="results" class="mt-4"></div>
+      </main>
+    </div>
+    <div id="bulkbar"></div>
+    <div id="drawer"></div>
+    <div id="modal"></div>`;
+
+  const search = $("#search");
+  const onSearch = debounce(() => { state.f.q = search.value; state.page = 1; refresh(); }, 250);
+  search.oninput = onSearch;
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "/" && !/input|textarea|select/i.test(document.activeElement?.tagName || "")) { e.preventDefault(); search.focus(); }
+    if (e.key === "Escape") { if (state.modal) closeModal(); else if (state.drawer) closeDrawer(); }
+  });
+  $("#app").onclick = onClick;
+  $("#app").onchange = onChange;
+  renderFilters();
+}
+
+// ---------- โหลดข้อมูล ----------
+async function loadCats() {
+  state.cats = (await guard(() => HubAPI.categories())) || [];
+  state.counts = (await guard(() => HubAPI.counts())) || [];
+  renderSidebar();
+}
+
+async function loadSources() {
+  state.sources = (await guard(() => HubAPI.sources())) || [];
+  renderFilters();
+}
+
+// หมวดที่เลือก + หมวดย่อยของมัน
+function categoryFilter() {
+  if (state.f.cat === "all") return null;
+  if (state.f.cat === "none") return [];
+  const id = Number(state.f.cat);
+  return [id, ...state.cats.filter(c => c.parent_id === id).map(c => c.id)];
+}
+
+let refreshSeq = 0;
+async function refresh() {
+  const seq = ++refreshSeq;
+  state.loading = true;
+  renderResults();
+  const out = await guard(() => HubAPI.products({ ...state.f, categoryIds: categoryFilter(), page: state.page, pageSize: PAGE_SIZE }));
+  if (seq !== refreshSeq) return;   // มีการค้นหาใหม่ระหว่างรอ
+  state.loading = false;
+  state.rows = out?.rows || [];
+  state.total = out?.total || 0;
+  renderResults();
+}
+
+async function reloadAll() {
+  await Promise.all([loadCats(), loadSources()]);
+  await refresh();
+}
+
+// ---------- แถบด้านข้าง: สถานะ + หมวด ----------
+function countWhere(fn) {
+  return state.counts.filter(fn).reduce((n, r) => n + Number(r.total), 0);
+}
+
+function renderSidebar() {
+  const el = $("#sidebar");
+  if (!el) return;
+  const statusItem = (key, label, dot) => {
+    const n = key === "all" ? countWhere(() => true) : countWhere(r => r.status === key);
+    const on = state.f.status === key;
+    return `<button data-act="status" data-v="${key}" class="w-full flex items-center gap-2.5 px-3 h-9 rounded-lg text-sm ${on ? "bg-brand-50 text-brand-700 font-semibold" : "text-slate-600 hover:bg-slate-50"}">
+      ${dot ? `<span class="w-2 h-2 rounded-full ${dot}"></span>` : `<span class="w-2 h-2"></span>`}
+      <span class="flex-1 text-left">${label}</span><span class="text-xs ${on ? "text-brand-600" : "text-slate-400"}">${fmtNum(n)}</span></button>`;
+  };
+  const catCount = (id) => countWhere(r => r.category_id === id);
+  const catItem = (c, depth) => {
+    const kids = state.cats.filter(k => k.parent_id === c.id);
+    const n = catCount(c.id) + kids.reduce((s, k) => s + catCount(k.id), 0);
+    const on = String(state.f.cat) === String(c.id);
+    return `<button data-act="cat" data-v="${c.id}" class="w-full flex items-center gap-2 h-8 pr-3 rounded-lg text-sm ${on ? "bg-brand-50 text-brand-700 font-semibold" : "text-slate-600 hover:bg-slate-50"}" style="padding-left:${12 + depth * 16}px">
+        <span class="flex-1 text-left truncate">${esc(c.name)}</span><span class="text-xs ${on ? "text-brand-600" : "text-slate-400"}">${fmtNum(n)}</span></button>`
+      + kids.map(k => catItem(k, depth + 1)).join("");
+  };
+  const roots = state.cats.filter(c => !c.parent_id || !catById(c.parent_id));
+  const noneOn = state.f.cat === "none";
+  el.innerHTML = `
+    <div class="p-3">
+      <div class="px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-slate-400">สถานะ</div>
+      ${statusItem("all", "ทั้งหมด", "")}
+      ${Object.entries(STATUS).map(([k, s]) => statusItem(k, s.label, s.dot)).join("")}
+      <div class="mt-4 px-3 pt-2 pb-1 flex items-center justify-between">
+        <span class="text-[11px] font-semibold tracking-wide text-slate-400">หมวดหมู่</span>
+        <button data-act="open-categories" class="text-xs text-brand-600 hover:underline">จัดการ</button>
+      </div>
+      <button data-act="cat" data-v="all" class="w-full flex items-center h-8 px-3 rounded-lg text-sm ${state.f.cat === "all" ? "bg-brand-50 text-brand-700 font-semibold" : "text-slate-600 hover:bg-slate-50"}">ทุกหมวด</button>
+      ${roots.map(c => catItem(c, 0)).join("")}
+      <button data-act="cat" data-v="none" class="w-full flex items-center gap-2 h-8 px-3 rounded-lg text-sm ${noneOn ? "bg-brand-50 text-brand-700 font-semibold" : "text-slate-500 hover:bg-slate-50"}">
+        <span class="flex-1 text-left italic">ยังไม่มีหมวด</span><span class="text-xs text-slate-400">${fmtNum(countWhere(r => r.category_id === null))}</span></button>
+    </div>`;
+}
+
+// ---------- แถวตัวกรอง ----------
+function renderFilters() {
+  const el = $("#filters");
+  if (!el) return;
+  const f = state.f;
+  const catOptions = [`<option value="all">ทุกหมวด</option>`, `<option value="none" ${f.cat === "none" ? "selected" : ""}>ยังไม่มีหมวด</option>`]
+    .concat(state.cats.map(c => `<option value="${c.id}" ${String(f.cat) === String(c.id) ? "selected" : ""}>${c.parent_id ? "— " : ""}${esc(c.name)}</option>`)).join("");
+  el.innerHTML = `
+    <div class="flex flex-wrap items-center gap-2">
+      <select data-f="cat" class="${INPUT} lg:hidden">${catOptions}</select>
+      <select data-f="status" class="${INPUT} lg:hidden">
+        <option value="all">ทุกสถานะ</option>${Object.entries(STATUS).map(([k, s]) => `<option value="${k}" ${f.status === k ? "selected" : ""}>${s.label}</option>`).join("")}
+      </select>
+      <select data-f="source" class="${INPUT}">
+        <option value="">ทุกแหล่ง</option>${state.sources.map(s => `<option value="${esc(s)}" ${f.source === s ? "selected" : ""}>${esc(s)}</option>`).join("")}
+      </select>
+      <div class="flex items-center gap-1">
+        <input data-f="minPrice" type="number" min="0" placeholder="ราคาต่ำสุด" value="${esc(f.minPrice)}" class="${INPUT} w-28">
+        <span class="text-slate-400">–</span>
+        <input data-f="maxPrice" type="number" min="0" placeholder="สูงสุด" value="${esc(f.maxPrice)}" class="${INPUT} w-24">
+      </div>
+      <input data-f="minCommission" type="number" min="0" max="100" placeholder="ค่าคอมขั้นต่ำ %" value="${esc(f.minCommission)}" class="${INPUT} w-36">
+      <div class="flex-1"></div>
+      <select data-f="sort" class="${INPUT}">${SORTS.map(([k, l]) => `<option value="${k}" ${f.sort === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+      <div class="inline-flex rounded-lg border border-slate-300 bg-white p-0.5">
+        ${["grid", "table"].map(v => `<button data-act="view" data-v="${v}" class="h-8 px-3 rounded-md text-sm ${state.view === v ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}">${v === "grid" ? "การ์ด" : "ตาราง"}</button>`).join("")}
+      </div>
+    </div>`;
+}
+
+// ---------- ผลลัพธ์ ----------
+function renderResults() {
+  const el = $("#results");
+  if (!el) return;
+  if (state.loading && !state.rows.length) {
+    el.innerHTML = `<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-4">${Array.from({ length: 12 }, () =>
+      `<div class="rounded-xl border border-slate-200 bg-white overflow-hidden"><div class="skeleton aspect-square"></div><div class="p-3 space-y-2"><div class="skeleton h-3 rounded"></div><div class="skeleton h-3 w-2/3 rounded"></div></div></div>`).join("")}</div>`;
+    return;
+  }
+  const pages = Math.max(1, Math.ceil(state.total / PAGE_SIZE));
+  const allOnPage = state.rows.length > 0 && state.rows.every(r => state.selected.has(r.id));
+  const head = `
+    <div class="flex items-center gap-3 mb-3 text-sm text-slate-600">
+      <label class="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" data-act="select-page" ${allOnPage ? "checked" : ""} class="rounded border-slate-300"> เลือกทั้งหน้า</label>
+      <span class="text-slate-400">·</span>
+      <span>พบ <b class="text-slate-800">${fmtNum(state.total)}</b> รายการ${state.loading ? ' <span class="text-slate-400">กำลังโหลด…</span>' : ""}</span>
+    </div>`;
+  const body = !state.rows.length ? emptyState() : state.view === "table" ? tableHtml() : gridHtml();
+  const pager = pages > 1 ? `
+    <div class="mt-6 flex items-center justify-center gap-2 text-sm">
+      <button data-act="page" data-v="${state.page - 1}" ${state.page <= 1 ? "disabled" : ""} class="${BTN} h-9">ก่อนหน้า</button>
+      <span class="px-3 text-slate-600">หน้า ${state.page} / ${pages}</span>
+      <button data-act="page" data-v="${state.page + 1}" ${state.page >= pages ? "disabled" : ""} class="${BTN} h-9">ถัดไป</button>
+    </div>` : "";
+  el.innerHTML = head + body + pager;
+  renderBulkbar();
+}
+
+function emptyState() {
+  const filtered = state.f.q || state.f.status !== "all" || state.f.cat !== "all" || state.f.source || state.f.minPrice || state.f.maxPrice || state.f.minCommission;
+  return `<div class="rounded-2xl border border-dashed border-slate-300 bg-white py-16 text-center">
+    <div class="text-slate-800 font-semibold">${filtered ? "ไม่พบสินค้าที่ตรงกับตัวกรอง" : "ยังไม่มีสินค้าในคลัง"}</div>
+    <div class="mt-1 text-sm text-slate-500">${filtered ? "ลองล้างตัวกรองหรือค้นด้วยคำอื่น" : "เริ่มจากนำเข้าไฟล์ CSV หรือย้ายโฆษณาเดิมเข้ามา"}</div>
+    <div class="mt-4">${filtered ? `<button data-act="clear-filters" class="${BTN} h-9">ล้างตัวกรอง</button>` : `<button data-act="open-import" class="${BTN_PRIMARY} h-9">+ นำเข้าสินค้า</button>`}</div>
+  </div>`;
+}
+
+function statusPill(s) {
+  const st = STATUS[s] || STATUS.pending;
+  return `<span class="inline-flex items-center gap-1 px-2 h-5 rounded-full text-[11px] font-medium ring-1 ${st.pill}"><span class="w-1.5 h-1.5 rounded-full ${st.dot}"></span>${st.label}</span>`;
+}
+
+function thumb(p, cls) {
+  return p.image_url
+    ? `<img src="${esc(p.image_url)}" alt="" loading="lazy" referrerpolicy="no-referrer" class="${cls}">`
+    : `<div class="${cls} grid place-items-center bg-slate-100 text-slate-400 text-xs">ไม่มีรูป</div>`;
+}
+
+function gridHtml() {
+  return `<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">${state.rows.map(p => {
+    const sel = state.selected.has(p.id);
+    return `<article data-act="edit" data-id="${p.id}" class="group relative rounded-xl border ${sel ? "border-brand-500 ring-2 ring-brand-500/30" : "border-slate-200"} bg-white overflow-hidden cursor-pointer hover:shadow-md transition-shadow">
+      <div class="relative">
+        ${thumb(p, "card-img w-full")}
+        <label data-stop class="absolute top-2 left-2 ${sel ? "" : "opacity-0 group-hover:opacity-100"} transition-opacity">
+          <input type="checkbox" data-act="select" data-id="${p.id}" ${sel ? "checked" : ""} class="w-5 h-5 rounded border-slate-300 shadow"></label>
+        ${p.commission != null ? `<span class="absolute top-2 right-2 px-2 h-6 inline-flex items-center rounded-full bg-white/95 text-[11px] font-semibold text-brand-700 shadow-sm">คอม ${fmtNum(p.commission)}%</span>` : ""}
+      </div>
+      <div class="p-3">
+        <h3 class="text-sm leading-snug text-slate-800 line-clamp-2 min-h-[2.5rem]">${esc(p.title)}</h3>
+        <div class="mt-1.5 text-base font-semibold text-rose-600">${esc(priceLabel(p))}</div>
+        <div class="mt-2 flex items-center justify-between gap-2">${statusPill(p.status)}<span class="text-[11px] text-slate-400 truncate">${esc(p.shop || p.source)}</span></div>
+        ${p.category_id ? `<div class="mt-2 text-[11px] text-slate-500 truncate">${esc(catName(p.category_id))}</div>` : `<div class="mt-2 text-[11px] text-amber-600">ยังไม่มีหมวด</div>`}
+      </div>
+    </article>`;
+  }).join("")}</div>`;
+}
+
+function tableHtml() {
+  return `<div class="rounded-xl border border-slate-200 bg-white overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-xs text-slate-500"><tr>
+        <th class="w-10 py-2.5 px-3"></th><th class="py-2.5 px-3 text-left font-medium">สินค้า</th>
+        <th class="py-2.5 px-3 text-left font-medium">หมวด</th><th class="py-2.5 px-3 text-right font-medium">ราคา</th>
+        <th class="py-2.5 px-3 text-right font-medium">ค่าคอม</th><th class="py-2.5 px-3 text-left font-medium">สถานะ</th>
+        <th class="py-2.5 px-3 text-left font-medium">แก้ไขล่าสุด</th></tr></thead>
+      <tbody>${state.rows.map(p => `
+        <tr data-act="edit" data-id="${p.id}" class="border-t border-slate-100 hover:bg-slate-50 cursor-pointer ${state.selected.has(p.id) ? "bg-brand-50/60" : ""}">
+          <td class="py-2 px-3" data-stop><input type="checkbox" data-act="select" data-id="${p.id}" ${state.selected.has(p.id) ? "checked" : ""} class="rounded border-slate-300"></td>
+          <td class="py-2 px-3"><div class="flex items-center gap-3 min-w-[260px]">${thumb(p, "w-11 h-11 rounded-lg object-cover shrink-0")}
+            <div class="min-w-0"><div class="text-slate-800 line-clamp-2">${esc(p.title)}</div><div class="text-xs text-slate-400">${esc([p.shop, p.source].filter(Boolean).join(" · "))}</div></div></div></td>
+          <td class="py-2 px-3 text-slate-600 whitespace-nowrap">${esc(catName(p.category_id)) || '<span class="text-amber-600">-</span>'}</td>
+          <td class="py-2 px-3 text-right whitespace-nowrap font-medium">${esc(priceLabel(p))}</td>
+          <td class="py-2 px-3 text-right whitespace-nowrap">${p.commission != null ? `${fmtNum(p.commission)}%` : "-"}</td>
+          <td class="py-2 px-3">${statusPill(p.status)}</td>
+          <td class="py-2 px-3 text-xs text-slate-500 whitespace-nowrap">${p.updated_at ? new Date(p.updated_at).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" }) : ""}</td>
+        </tr>`).join("")}</tbody>
+    </table></div>`;
+}
+
+// ---------- แก้ทีละหลายรายการ ----------
+function renderBulkbar() {
+  const el = $("#bulkbar");
+  if (!el) return;
+  const n = state.selected.size;
+  if (!n) { el.innerHTML = ""; return; }
+  el.innerHTML = `
+    <div class="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-4xl">
+      <div class="flex flex-wrap items-center gap-2 px-4 py-3 rounded-2xl bg-slate-900 text-white shadow-2xl">
+        <span class="text-sm font-semibold mr-1">เลือก ${fmtNum(n)} รายการ</span>
+        <select data-bulk="category" class="h-9 px-2 rounded-lg bg-slate-800 border border-slate-700 text-sm">
+          <option value="">ย้ายไปหมวด…</option><option value="none">(ไม่มีหมวด)</option>
+          ${state.cats.map(c => `<option value="${c.id}">${c.parent_id ? "— " : ""}${esc(c.name)}</option>`).join("")}
+        </select>
+        <select data-bulk="status" class="h-9 px-2 rounded-lg bg-slate-800 border border-slate-700 text-sm">
+          <option value="">เปลี่ยนสถานะ…</option>${Object.entries(STATUS).map(([k, s]) => `<option value="${k}">${s.label}</option>`).join("")}
+        </select>
+        <button data-act="bulk-delete" class="h-9 px-3 rounded-lg bg-rose-600 hover:bg-rose-500 text-sm">ลบ</button>
+        <div class="flex-1"></div>
+        <button data-act="bulk-clear" class="h-9 px-3 rounded-lg hover:bg-slate-800 text-sm text-slate-300">ยกเลิกการเลือก</button>
+      </div>
+    </div>`;
+}
+
+async function bulkUpdate(patch, label) {
+  const ids = [...state.selected];
+  if (!(await guard(() => HubAPI.updateProducts(ids, patch), `${label} ${ids.length} รายการแล้ว`))) return renderBulkbar();
+  state.selected.clear();
+  await reloadAll();
+}
+
+// ---------- แผงแก้ไขสินค้า ----------
+function openDrawer(id) {
+  const p = id === "new" ? { title: "", link: "", status: "pending", weight: 1, tags: [] } : state.rows.find(r => r.id === id);
+  if (!p) return;
+  state.drawer = { ...p, tags: [...(p.tags || [])] };
+  renderDrawer();
+}
+
+function closeDrawer() {
+  state.drawer = null;
+  renderDrawer();
+}
+
+function field(label, inner, hint = "") {
+  return `<label class="block"><span class="text-xs font-medium text-slate-600">${label}</span>${inner}${hint ? `<span class="block mt-1 text-[11px] text-slate-400">${hint}</span>` : ""}</label>`;
+}
+
+function renderDrawer() {
+  const el = $("#drawer");
+  if (!el) return;
+  const p = state.drawer;
+  if (!p) { el.innerHTML = ""; return; }
+  const input = (k, attrs = "") => `<input data-d="${k}" value="${esc(p[k] ?? "")}" ${attrs} class="${INPUT} mt-1 w-full">`;
+  el.innerHTML = `
+    <div class="fixed inset-0 z-50">
+      <div data-act="close-drawer" class="absolute inset-0 bg-slate-900/30"></div>
+      <section class="drawer-enter absolute right-0 top-0 h-full w-full max-w-xl bg-white shadow-2xl flex flex-col">
+        <header class="h-14 px-5 flex items-center justify-between border-b border-slate-200">
+          <h2 class="font-semibold">${p.id ? "แก้ไขสินค้า" : "เพิ่มสินค้า"}</h2>
+          <button data-act="close-drawer" class="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500" aria-label="ปิด">✕</button>
+        </header>
+        <div class="flex-1 overflow-y-auto p-5 space-y-4">
+          <div class="flex gap-4">
+            <div class="w-36 shrink-0">
+              ${thumb(p, "w-36 h-36 rounded-xl object-cover border border-slate-200")}
+              <label class="${BTN} h-8 w-full mt-2 cursor-pointer">${p._uploading ? "กำลังอัปโหลด…" : "อัปโหลดรูปใหม่"}
+                <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" data-act="upload" class="hidden"></label>
+            </div>
+            <div class="flex-1 space-y-3">
+              ${field("ชื่อสินค้า", `<textarea data-d="title" rows="3" class="${INPUT} h-auto py-2 mt-1 w-full">${esc(p.title)}</textarea>`)}
+              ${field("สถานะ", `<select data-d="status" class="${INPUT} mt-1 w-full">${Object.entries(STATUS).map(([k, s]) => `<option value="${k}" ${p.status === k ? "selected" : ""}>${s.label}</option>`).join("")}</select>`)}
+            </div>
+          </div>
+          ${field("ลิงก์ affiliate", `<div class="flex gap-2 mt-1"><input data-d="link" value="${esc(p.link)}" class="${INPUT} flex-1"><a href="${esc(p.link)}" target="_blank" rel="noopener" class="${BTN} h-9">เปิด</a></div>`)}
+          ${field("ลิงก์รูป", input("image_url"), "วางลิงก์รูป หรือกดอัปโหลดรูปใหม่ด้านบน")}
+          <div class="grid grid-cols-2 gap-3">
+            ${field("ราคา (ข้อความที่แสดง)", input("price_text", 'placeholder="฿320"'))}
+            ${field("ราคา (ตัวเลข ใช้กรอง)", input("price", 'type="number" min="0" step="0.01"'))}
+            ${field("ค่าคอม %", input("commission", 'type="number" min="0" max="100" step="0.01"'))}
+            ${field("ยอดขาย", input("sold_text"))}
+            ${field("ร้าน / ผู้ลงโฆษณา", input("shop"))}
+            ${field("หมวดหมู่", `<select data-d="category_id" class="${INPUT} mt-1 w-full"><option value="">(ไม่มีหมวด)</option>${state.cats.map(c => `<option value="${c.id}" ${p.category_id === c.id ? "selected" : ""}>${c.parent_id ? "— " : ""}${esc(c.name)}</option>`).join("")}</select>`)}
+          </div>
+          ${field("แท็ก", `<input data-d="tags" value="${esc((p.tags || []).join(", "))}" class="${INPUT} mt-1 w-full">`, "คั่นด้วยจุลภาค เช่น ลดราคา, ของขวัญ")}
+          <div class="grid grid-cols-3 gap-3">
+            ${field("น้ำหนักการสุ่ม", input("weight", 'type="number" min="1" max="10"'), "1–10 ยิ่งมากยิ่งขึ้นบ่อย")}
+            ${field("เริ่มแสดง", input("starts_on", 'type="date"'))}
+            ${field("หยุดแสดง", input("ends_on", 'type="date"'))}
+          </div>
+          ${field("โน้ต", `<textarea data-d="note" rows="2" class="${INPUT} h-auto py-2 mt-1 w-full">${esc(p.note || "")}</textarea>`)}
+          ${p.id ? `<div class="text-[11px] text-slate-400">แหล่ง ${esc(p.source || "-")}${p.source_id ? ` · รหัส ${esc(p.source_id)}` : ""} · เพิ่มเมื่อ ${p.created_at ? new Date(p.created_at).toLocaleString("th-TH") : "-"}</div>` : ""}
+        </div>
+        <footer class="px-5 py-3 border-t border-slate-200 flex items-center gap-2">
+          ${p.id ? `<button data-act="delete-one" class="${BTN_DANGER} h-9">ลบ</button>` : ""}
+          <div class="flex-1"></div>
+          <button data-act="close-drawer" class="${BTN} h-9">ยกเลิก</button>
+          <button data-act="save-drawer" class="${BTN_PRIMARY} h-9">บันทึก</button>
+        </footer>
+      </section>
+    </div>`;
+}
+
+function readDrawerInputs() {
+  const p = state.drawer;
+  document.querySelectorAll("#drawer [data-d]").forEach(inp => {
+    const k = inp.dataset.d;
+    let v = inp.value;
+    if (k === "tags") v = v.split(",").map(t => t.trim()).filter(Boolean);
+    else if (["price", "commission"].includes(k)) v = v === "" ? null : Number(v);
+    else if (k === "weight") v = Math.min(10, Math.max(1, Number(v) || 1));
+    else if (k === "category_id") v = v ? Number(v) : null;
+    else if (["starts_on", "ends_on"].includes(k)) v = v || null;
+    p[k] = v;
+  });
+  return p;
+}
+
+async function saveDrawer() {
+  const p = readDrawerInputs();
+  if (!String(p.title || "").trim()) return toast("ใส่ชื่อสินค้าก่อน", "error");
+  if (!/^https?:\/\//i.test(p.link || "")) return toast("ลิงก์ต้องขึ้นต้นด้วย https://", "error");
+  if (!p.source) p.source = HubImport.siteName(p.link);
+  const { _uploading, ...row } = p;
+  const saved = await guard(() => HubAPI.saveProduct(row), "บันทึกแล้ว");
+  if (!saved) return;
+  state.drawer = null;
+  renderDrawer();
+  await reloadAll();
+}
+
+async function uploadDrawerImage(input) {
+  const file = input.files?.[0];
+  if (!file || !state.drawer) return;
+  readDrawerInputs();
+  state.drawer._uploading = true;
+  renderDrawer();
+  const url = await guard(() => HubAPI.uploadImage(file));
+  if (!state.drawer) return;
+  state.drawer._uploading = false;
+  if (url) state.drawer.image_url = url;
+  renderDrawer();
+}
+
+// ---------- นำเข้า ----------
+function openImport() {
+  state.modal = "import";
+  state.importer = { items: [], fileName: "", status: "pending", keyword: "", category: "", busy: false, result: null };
+  renderModal();
+}
+
+function closeModal() {
+  state.modal = null;
+  state.importer = null;
+  renderModal();
+}
+
+function importModalHtml() {
+  const im = state.importer;
+  const legacy = window.HUB_CONFIG?.legacyPromos;
+  const preview = im.items.slice(0, 8);
+  const noLink = im.items.filter(r => !r.link || !r.title).length;
+  return `
+    <h2 class="text-lg font-semibold">นำเข้าสินค้า</h2>
+    <p class="mt-1 text-sm text-slate-500">สินค้าที่มีอยู่แล้ว (รหัสสินค้าหรือลิงก์เดียวกัน) จะอัปเดตราคา ค่าคอม ยอดขาย ให้ ไม่สร้างซ้ำ และไม่แตะหมวดหรือสถานะที่ตั้งไว้</p>
+    ${im.result ? resultHtml(im.result) : `
+    <div class="mt-4 grid sm:grid-cols-2 gap-3">
+      <label class="block rounded-xl border-2 border-dashed border-slate-300 hover:border-brand-500 p-4 cursor-pointer text-center">
+        <div class="text-sm font-semibold text-slate-700">เลือกไฟล์ CSV</div>
+        <div class="text-xs text-slate-500 mt-1">${im.fileName ? esc(im.fileName) : "จาก extension หรือเว็บใดก็ได้ที่มีชื่อสินค้าและลิงก์"}</div>
+        <input type="file" accept=".csv,text/csv,text/plain" data-act="import-file" class="hidden">
+      </label>
+      ${legacy?.name ? `<button data-act="import-legacy" class="rounded-xl border border-slate-200 hover:border-brand-500 p-4 text-center">
+        <div class="text-sm font-semibold text-slate-700">ย้ายโฆษณาเดิมจาก ${esc(legacy.label || legacy.name)}</div>
+        <div class="text-xs text-slate-500 mt-1">อ่านจาก site_meta "${esc(legacy.name)}" ในโปรเจกต์เดียวกัน</div></button>` : ""}
+    </div>
+    ${im.items.length ? `
+      <div class="mt-4 grid sm:grid-cols-3 gap-3">
+        ${field("สถานะของสินค้าใหม่", `<select data-im="status" class="${INPUT} mt-1 w-full">
+          <option value="pending" ${im.status === "pending" ? "selected" : ""}>รอตรวจ (แนะนำ)</option>
+          <option value="active" ${im.status === "active" ? "selected" : ""}>แสดงทันที</option>
+          <option value="paused" ${im.status === "paused" ? "selected" : ""}>พักไว้</option></select>`)}
+        ${field("หมวดของไฟล์นี้", `<select data-im="category" class="${INPUT} mt-1 w-full"><option value="">เดาจากชื่อสินค้า</option>${state.cats.map(c => `<option value="${esc(c.name)}" ${im.category === c.name ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>`)}
+        ${field("คำค้นที่ใช้ดึง", `<input data-im="keyword" value="${esc(im.keyword)}" placeholder="เช่น เสื้อคลุมทวิต" class="${INPUT} mt-1 w-full">`, "ช่วยเดาหมวดและค้นหาภายหลัง")}
+      </div>
+      <div class="mt-4 rounded-xl border border-slate-200 overflow-hidden">
+        <div class="px-3 py-2 bg-slate-50 text-xs text-slate-600">พบ ${fmtNum(im.items.length)} รายการ${noLink ? ` · <span class="text-rose-600">${noLink} รายการไม่มีชื่อหรือลิงก์ จะถูกข้าม</span>` : ""} · ตัวอย่าง ${preview.length} รายการแรก</div>
+        <div class="divide-y divide-slate-100 max-h-72 overflow-y-auto">${preview.map(r => `
+          <div class="flex items-center gap-3 px-3 py-2">${thumb(r, "w-10 h-10 rounded-md object-cover shrink-0")}
+            <div class="min-w-0 flex-1"><div class="text-sm truncate">${esc(r.title || "(ไม่มีชื่อ)")}</div>
+            <div class="text-[11px] text-slate-400 truncate">${esc([r.price_text, r.commission && `คอม ${r.commission}%`, r.source, r.source_id && `#${r.source_id}`].filter(Boolean).join(" · "))}</div></div></div>`).join("")}
+        </div>
+      </div>` : ""}`}
+    <div class="mt-5 flex items-center justify-end gap-2">
+      <button data-act="close-modal" class="${BTN} h-9">${im.result ? "ปิด" : "ยกเลิก"}</button>
+      ${!im.result && im.items.length ? `<button data-act="run-import" ${im.busy ? "disabled" : ""} class="${BTN_PRIMARY} h-9">${im.busy ? esc(im.busy) : `นำเข้า ${fmtNum(im.items.length)} รายการ`}</button>` : ""}
+    </div>`;
+}
+
+function resultHtml(r) {
+  const box = (n, label, cls) => `<div class="rounded-xl ${cls} p-4 text-center"><div class="text-2xl font-bold">${fmtNum(n)}</div><div class="text-xs mt-1">${label}</div></div>`;
+  return `<div class="mt-4 grid grid-cols-3 gap-3">
+      ${box(r.added, "เพิ่มใหม่", "bg-emerald-50 text-emerald-700")}${box(r.updated, "อัปเดตของเดิม", "bg-brand-50 text-brand-700")}${box(r.skipped, "ข้าม", "bg-slate-100 text-slate-600")}
+    </div>
+    ${r.errors.length ? `<div class="mt-3 max-h-40 overflow-y-auto text-xs text-rose-600 space-y-0.5">${r.errors.slice(0, 50).map(e => `<div>แถว ${e.row}: ${esc(e.error)}</div>`).join("")}</div>` : ""}`;
+}
+
+async function readImportFile(input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  const im = state.importer;
+  im.fileName = file.name;
+  im.items = HubImport.fromCsv(await file.text());
+  if (!im.items.length) toast("ไม่พบรายการสินค้าในไฟล์นี้", "error");
+  renderModal();
+}
+
+async function loadLegacy() {
+  const legacy = window.HUB_CONFIG?.legacyPromos;
+  const slots = await guard(() => HubAPI.legacyPromos(legacy.name));
+  if (!slots) return;
+  const im = state.importer;
+  im.items = HubImport.fromLegacySlots(slots);
+  im.fileName = `โฆษณาเดิมจาก ${legacy.label || legacy.name}`;
+  im.status = "active";
+  if (!im.items.length) toast("ไม่พบโฆษณาเดิม", "error");
+  renderModal();
+}
+
+async function runImport() {
+  const im = state.importer;
+  readImportInputs();
+  const total = { added: 0, updated: 0, skipped: 0, errors: [] };
+  // โฆษณาเดิมที่ปิดไว้ นำเข้าเป็น "พักไว้" ที่เหลือใช้สถานะที่เลือก
+  const groups = [
+    [im.items.filter(r => r.enabled !== false), im.status],
+    [im.items.filter(r => r.enabled === false), "paused"],
+  ];
+  let done = 0;
+  for (const [items, status] of groups) {
+    for (let i = 0; i < items.length; i += IMPORT_CHUNK) {
+      const chunk = items.slice(i, i + IMPORT_CHUNK).map(({ enabled, ...r }) => ({
+        ...r,
+        category: r.category || im.category,
+        search_keyword: im.keyword,
+      }));
+      im.busy = `กำลังนำเข้า ${fmtNum(done)}/${fmtNum(im.items.length)}`;
+      renderModal();
+      const res = await guard(() => HubAPI.importProducts(chunk, status));
+      if (!res) { im.busy = false; renderModal(); return; }
+      total.added += res.added; total.updated += res.updated; total.skipped += res.skipped;
+      total.errors.push(...(res.errors || []).map(e => ({ ...e, row: e.row + done })));
+      done += chunk.length;
+    }
+  }
+  im.busy = false;
+  im.result = total;
+  renderModal();
+  await reloadAll();
+}
+
+function readImportInputs() {
+  document.querySelectorAll("#modal [data-im]").forEach(inp => { state.importer[inp.dataset.im] = inp.value; });
+}
+
+// ---------- จัดการหมวด ----------
+function categoriesModalHtml() {
+  const row = (c) => `
+    <div class="grid grid-cols-12 gap-2 items-center py-2 border-t border-slate-100" data-cat-row="${c.id || "new"}">
+      <input data-c="name" value="${esc(c.name || "")}" placeholder="ชื่อหมวด" class="${INPUT} col-span-3">
+      <select data-c="parent_id" class="${INPUT} col-span-3"><option value="">(หมวดหลัก)</option>${state.cats.filter(p => p.id !== c.id && !p.parent_id).map(p => `<option value="${p.id}" ${c.parent_id === p.id ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
+      <input data-c="keywords" value="${esc((c.keywords || []).join(", "))}" placeholder="คำที่ใช้เดาหมวด คั่นด้วยจุลภาค" class="${INPUT} col-span-4">
+      <div class="col-span-2 flex justify-end gap-1">
+        <button data-act="save-cat" data-id="${c.id || ""}" class="${BTN} h-9">${c.id ? "บันทึก" : "เพิ่ม"}</button>
+        ${c.id ? `<button data-act="delete-cat" data-id="${c.id}" class="${BTN_DANGER} h-9 px-2" aria-label="ลบหมวด">ลบ</button>` : ""}
+      </div>
+    </div>`;
+  return `
+    <h2 class="text-lg font-semibold">จัดการหมวดหมู่</h2>
+    <p class="mt-1 text-sm text-slate-500">ลบหมวดแล้วสินค้าในหมวดนั้นจะกลายเป็น "ยังไม่มีหมวด" ไม่ถูกลบ</p>
+    <div class="mt-4 max-h-[60vh] overflow-y-auto pr-1">${state.cats.map(row).join("")}${row({})}</div>
+    <div class="mt-5 flex justify-end"><button data-act="close-modal" class="${BTN} h-9">เสร็จ</button></div>`;
+}
+
+async function saveCat(btn) {
+  const rowEl = btn.closest("[data-cat-row]");
+  const get = (k) => rowEl.querySelector(`[data-c=${k}]`).value;
+  const id = btn.dataset.id ? Number(btn.dataset.id) : null;
+  const cat = {
+    id, name: get("name").trim(), parent_id: get("parent_id") ? Number(get("parent_id")) : null,
+    keywords: get("keywords").split(",").map(k => k.trim()).filter(Boolean),
+    sort: id ? catById(id)?.sort || 0 : (Math.max(0, ...state.cats.map(c => c.sort || 0)) + 10),
+  };
+  if (!cat.name) return toast("ใส่ชื่อหมวดก่อน", "error");
+  if (await guard(() => HubAPI.saveCategory(cat), "บันทึกหมวดแล้ว")) {
+    await loadCats();
+    renderFilters();
+    renderModal();
+  }
+}
+
+async function deleteCat(id) {
+  const c = catById(id);
+  if (!c || !confirm(`ลบหมวด "${c.name}"?`)) return;
+  if (state.f.cat === String(id)) state.f.cat = "all";
+  await guard(() => HubAPI.deleteCategory(id), "ลบหมวดแล้ว");
+  await reloadAll();
+  renderFilters();
+  renderModal();
+}
+
+function renderModal() {
+  const el = $("#modal");
+  if (!el) return;
+  if (!state.modal) { el.innerHTML = ""; return; }
+  const inner = state.modal === "import" ? importModalHtml() : categoriesModalHtml();
+  el.innerHTML = `
+    <div class="fixed inset-0 z-[60] grid place-items-center p-4">
+      <div data-act="close-modal" class="absolute inset-0 bg-slate-900/40"></div>
+      <div class="relative w-full ${state.modal === "categories" ? "max-w-4xl" : "max-w-3xl"} max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl p-6">${inner}</div>
+    </div>`;
+}
+
+// ---------- เหตุการณ์ ----------
+async function onClick(e) {
+  // คลิกช่องเลือกบนการ์ด: ให้ติ๊กอย่างเดียว ไม่เปิดแผงแก้ไข (การติ๊กจัดการใน onChange)
+  if (e.target.closest("[data-stop]")) return;
+  const el = e.target.closest("[data-act]");
+  if (!el) return;
+  const act = el.dataset.act;
+  const v = el.dataset.v;
+  if (["select", "select-page", "upload", "import-file"].includes(act)) return;   // จัดการใน onChange
+  switch (act) {
+    case "edit": openDrawer(Number(el.dataset.id)); break;
+    case "close-drawer": closeDrawer(); break;
+    case "save-drawer": saveDrawer(); break;
+    case "delete-one": {
+      const p = state.drawer;
+      if (!confirm(`ลบ "${p.title}"?`)) return;
+      if (await guard(() => HubAPI.deleteProducts([p.id]), "ลบแล้ว")) { closeDrawer(); reloadAll(); }
+      break;
+    }
+    case "status": state.f.status = v; state.page = 1; state.selected.clear(); renderSidebar(); renderFilters(); refresh(); break;
+    case "cat": state.f.cat = v; state.page = 1; state.selected.clear(); renderSidebar(); renderFilters(); refresh(); break;
+    case "view": state.view = v; localSet("hub.view", v); renderFilters(); renderResults(); break;
+    case "page": state.page = Number(v); refresh(); window.scrollTo({ top: 0, behavior: "smooth" }); break;
+    case "clear-filters":
+      state.f = { ...state.f, q: "", status: "all", cat: "all", source: "", minCommission: "", minPrice: "", maxPrice: "" };
+      $("#search").value = "";
+      state.page = 1; renderSidebar(); renderFilters(); refresh();
+      break;
+    case "bulk-clear": state.selected.clear(); renderResults(); break;
+    case "bulk-delete":
+      if (!confirm(`ลบ ${state.selected.size} รายการ? ย้อนกลับไม่ได้`)) return;
+      if (await guard(() => HubAPI.deleteProducts([...state.selected]), `ลบ ${state.selected.size} รายการแล้ว`)) {
+        state.selected.clear(); reloadAll();
+      }
+      break;
+    case "open-import": openImport(); break;
+    case "open-categories": state.modal = "categories"; renderModal(); break;
+    case "close-modal": closeModal(); break;
+    case "import-legacy": loadLegacy(); break;
+    case "run-import": runImport(); break;
+    case "save-cat": saveCat(el); break;
+    case "delete-cat": deleteCat(Number(el.dataset.id)); break;
+    case "signout": await HubAPI.signOut(); boot(); break;
+  }
+}
+
+async function onChange(e) {
+  const t = e.target;
+  if (t.dataset.f) {
+    state.f[t.dataset.f] = t.value;
+    state.page = 1;
+    if (t.dataset.f === "cat" || t.dataset.f === "status") renderSidebar();
+    refresh();
+    return;
+  }
+  if (t.dataset.bulk && t.value) {
+    const val = t.value;
+    if (t.dataset.bulk === "category") await bulkUpdate({ category_id: val === "none" ? null : Number(val) }, "ย้ายหมวด");
+    else await bulkUpdate({ status: val }, `ตั้งเป็น "${STATUS[val].label}"`);
+    return;
+  }
+  if (t.dataset.im) { state.importer[t.dataset.im] = t.value; return; }
+  switch (t.dataset.act) {
+    case "select": {
+      const id = Number(t.dataset.id);
+      if (t.checked) state.selected.add(id); else state.selected.delete(id);
+      renderResults();
+      break;
+    }
+    case "select-page":
+      state.rows.forEach(r => (t.checked ? state.selected.add(r.id) : state.selected.delete(r.id)));
+      renderResults();
+      break;
+    case "upload": uploadDrawerImage(t); break;
+    case "import-file": readImportFile(t); break;
+  }
+}
+
+boot();
