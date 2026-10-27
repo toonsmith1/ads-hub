@@ -98,6 +98,42 @@
       must(await client.storage.from(BUCKET).upload(name, file, { contentType: file.type, upsert: false }));
       return client.storage.from(BUCKET).getPublicUrl(name).data.publicUrl;
     },
+    // จำนวนการแสดงและคลิกต่อสินค้าย้อนหลัง N วัน → { [product_id]: {views, clicks} }
+    async productStats(ids, days = 30) {
+      if (!ids.length) return {};
+      const rows = must(await client.rpc("hub_product_stats", { p_ids: ids, p_days: days }));
+      return Object.fromEntries((rows || []).map(r => [r.product_id, { views: Number(r.views), clicks: Number(r.clicks) }]));
+    },
+    async productTitles(ids) {
+      if (!ids.length) return [];
+      return must(await client.from("hub_products").select("id, title, status").in("id", ids));
+    },
+
+    // เว็บที่นำโฆษณาไปแสดง พร้อมจุดที่วางของแต่ละเว็บ
+    async sites() {
+      return must(await client.from("hub_sites").select("*, hub_placements(*)").order("created_at").order("id", { referencedTable: "hub_placements" }));
+    },
+    async saveSite(site) {
+      const row = { key: site.key, name: site.name, domain: site.domain || "" };
+      const q = site.id ? client.from("hub_sites").update(row).eq("id", site.id) : client.from("hub_sites").insert(row);
+      return must(await q.select().single());
+    },
+    async deleteSite(id) {
+      must(await client.from("hub_sites").delete().eq("id", id));
+      return true;
+    },
+    async savePlacement(pl) {
+      const row = {
+        site_id: pl.site_id, key: pl.key, label: pl.label || "", slots: pl.slots, positions: pl.positions || [],
+        category_ids: pl.category_ids || [], pinned_ids: pl.pinned_ids || [], enabled: pl.enabled !== false,
+      };
+      const q = pl.id ? client.from("hub_placements").update(row).eq("id", pl.id) : client.from("hub_placements").insert(row);
+      return must(await q.select().single());
+    },
+    async deletePlacement(id) {
+      must(await client.from("hub_placements").delete().eq("id", id));
+      return true;
+    },
     // โฆษณาเดิมที่เว็บอื่นเก็บไว้ในตาราง site_meta (เช่น transfer เก็บที่ name = "promos")
     async legacyPromos(name) {
       const res = await client.from("site_meta").select("data").eq("name", name).maybeSingle();

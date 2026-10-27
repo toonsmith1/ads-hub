@@ -23,7 +23,10 @@
   ];
   const delay = (v) => new Promise(r => setTimeout(() => r(v), 30));
 
-  window.__fake = { products, cats, calls: [] };
+  const sites = [{ id: 1, key: "transfer", name: "ย้ายราชการ", domain: "transfer.example" }];
+  const placements = [{ id: 1, site_id: 1, key: "feed", label: "แทรกในรายการ", slots: 4, positions: [2, 6, 10, 14], category_ids: [], pinned_ids: [3], enabled: true }];
+
+  window.__fake = { products, cats, sites, placements, calls: [] };
   window.HubAPI = {
     configured: true,
     session: () => delay({ user: { email: "admin@example.com" } }),
@@ -90,6 +93,28 @@
         added++;
       });
       return delay({ added, updated, skipped, errors });
+    },
+    productStats: (ids) => delay(Object.fromEntries(ids.filter(id => id % 2).map(id => [id, { views: id * 10, clicks: id }]))),
+    productTitles: (ids) => delay(products.filter(p => ids.includes(p.id)).map(({ id, title, status }) => ({ id, title, status }))),
+    sites: () => delay(sites.map(s => ({ ...s, hub_placements: placements.filter(p => p.site_id === s.id).map(p => ({ ...p })) }))),
+    async saveSite(site) {
+      if (site.id) Object.assign(sites.find(x => x.id === site.id), site);
+      else sites.push({ ...site, id: ++seq });
+      return delay(site);
+    },
+    async deleteSite(id) {
+      sites.splice(sites.findIndex(s => s.id === id), 1);
+      for (let i = placements.length - 1; i >= 0; i--) if (placements[i].site_id === id) placements.splice(i, 1);
+      return delay(true);
+    },
+    async savePlacement(pl) {
+      if (pl.id) Object.assign(placements.find(x => x.id === pl.id), pl);
+      else placements.push({ ...pl, id: ++seq });
+      return delay(pl);
+    },
+    async deletePlacement(id) {
+      placements.splice(placements.findIndex(p => p.id === id), 1);
+      return delay(true);
     },
     uploadImage: () => delay(img("uploaded")),
     legacyPromos: () => delay(legacy),

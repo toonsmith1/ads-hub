@@ -1,5 +1,5 @@
 // ==========================================
-// หน้าจัดการ Ad Hub: คลังสินค้า ค้นหา กรอง หมวด แก้ทีละหลายรายการ นำเข้า
+// หน้าจัดการ Ad Hub: คลังสินค้า ค้นหา กรอง หมวด แก้ทีละหลายรายการ นำเข้า เว็บที่แสดงโฆษณา
 // ข้อมูลทั้งหมดผ่าน HubAPI (js/api.js) แต่ละส่วนของหน้ามีกล่องของตัวเอง วาดใหม่เฉพาะส่วนที่เปลี่ยน
 // ==========================================
 const STATUS = {
@@ -14,6 +14,7 @@ const SORTS = [
 ];
 const PAGE_SIZE = 48;
 const IMPORT_CHUNK = 200;
+const STATS_DAYS = 30;
 
 const state = {
   admin: false,
@@ -28,8 +29,11 @@ const state = {
   selected: new Set(),
   view: localGet("hub.view") || "grid",
   drawer: null,   // สินค้าที่กำลังแก้ (สำเนา)
-  modal: null,    // "import" | "categories"
+  modal: null,    // "import" | "categories" | "sites"
   importer: null,
+  stats: {},      // { [product_id]: {views, clicks} } ของสินค้าในหน้านี้ ย้อนหลัง STATS_DAYS วัน
+  sites: null,    // เว็บที่แสดงโฆษณา พร้อม hub_placements (โหลดตอนเปิดหน้าต่าง)
+  pinTitles: {},  // ชื่อสินค้าที่ปักหมุด { [id]: {title, status} }
 };
 
 // ---------- เครื่องมือเล็กๆ ----------
@@ -133,6 +137,7 @@ function renderShell() {
           <svg class="absolute left-3 top-2.5 w-4 h-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 3.4 9.83l3.64 3.63a.75.75 0 1 0 1.06-1.06l-3.63-3.64A5.5 5.5 0 0 0 9 3.5ZM5 9a4 4 0 1 1 8 0 4 4 0 0 1-8 0Z" clip-rule="evenodd"/></svg>
           <input id="search" type="search" placeholder="ค้นหาชื่อสินค้า ร้าน หรือโน้ต  ( / )" class="${INPUT} w-full pl-9 h-10" autocomplete="off">
         </div>
+        <button data-act="open-sites" class="${BTN} h-10 shrink-0">เว็บที่แสดงโฆษณา</button>
         <button data-act="open-import" class="${BTN_PRIMARY} h-10 shrink-0">+ นำเข้าสินค้า</button>
         <button data-act="signout" class="${BTN} h-10 shrink-0 hidden md:inline-flex">ออกจากระบบ</button>
       </div>
@@ -191,6 +196,22 @@ async function refresh() {
   state.rows = out?.rows || [];
   state.total = out?.total || 0;
   renderResults();
+  loadStats(seq);
+}
+
+// สถิติไม่ใช่ส่วนสำคัญของหน้า โหลดตามหลัง ถ้าพลาด (เช่นยังไม่ได้รัน schema เฟส 3) ก็แค่ไม่แสดง
+async function loadStats(seq) {
+  const ids = state.rows.map(r => r.id);
+  let stats = {};
+  try { stats = await HubAPI.productStats(ids, STATS_DAYS); } catch (err) { console.warn("stats", err); }
+  if (seq !== refreshSeq) return;
+  state.stats = stats;
+  renderResults();
+}
+
+function statsText(id) {
+  const st = state.stats[id];
+  return st ? `คลิก ${fmtNum(st.clicks)} · แสดง ${fmtNum(st.views)}` : "ยังไม่มีคลิก";
 }
 
 async function reloadAll() {
@@ -333,6 +354,7 @@ function gridHtml() {
         <div class="mt-1.5 text-base font-semibold text-rose-600">${esc(priceLabel(p))}</div>
         <div class="mt-2 flex items-center justify-between gap-2">${statusPill(p.status)}<span class="text-[11px] text-slate-400 truncate">${esc(p.shop || p.source)}</span></div>
         ${p.category_id ? `<div class="mt-2 text-[11px] text-slate-500 truncate">${esc(catName(p.category_id))}</div>` : `<div class="mt-2 text-[11px] text-amber-600">ยังไม่มีหมวด</div>`}
+        <div class="mt-1 text-[11px] text-slate-400 truncate" title="${STATS_DAYS} วันล่าสุด">${statsText(p.id)}</div>
       </div>
     </article>`;
   }).join("")}</div>`;
@@ -344,7 +366,7 @@ function tableHtml() {
       <thead class="bg-slate-50 text-xs text-slate-500"><tr>
         <th class="w-10 py-2.5 px-3"></th><th class="py-2.5 px-3 text-left font-medium">สินค้า</th>
         <th class="py-2.5 px-3 text-left font-medium">หมวด</th><th class="py-2.5 px-3 text-right font-medium">ราคา</th>
-        <th class="py-2.5 px-3 text-right font-medium">ค่าคอม</th><th class="py-2.5 px-3 text-left font-medium">สถานะ</th>
+        <th class="py-2.5 px-3 text-right font-medium">ค่าคอม</th><th class="py-2.5 px-3 text-right font-medium">คลิก ${STATS_DAYS} วัน</th><th class="py-2.5 px-3 text-left font-medium">สถานะ</th>
         <th class="py-2.5 px-3 text-left font-medium">แก้ไขล่าสุด</th></tr></thead>
       <tbody>${state.rows.map(p => `
         <tr data-act="edit" data-id="${p.id}" class="border-t border-slate-100 hover:bg-slate-50 cursor-pointer ${state.selected.has(p.id) ? "bg-brand-50/60" : ""}">
@@ -354,6 +376,7 @@ function tableHtml() {
           <td class="py-2 px-3 text-slate-600 whitespace-nowrap">${esc(catName(p.category_id)) || '<span class="text-amber-600">-</span>'}</td>
           <td class="py-2 px-3 text-right whitespace-nowrap font-medium">${esc(priceLabel(p))}</td>
           <td class="py-2 px-3 text-right whitespace-nowrap">${p.commission != null ? `${fmtNum(p.commission)}%` : "-"}</td>
+          <td class="py-2 px-3 text-right whitespace-nowrap">${fmtNum(state.stats[p.id]?.clicks || 0)}</td>
           <td class="py-2 px-3">${statusPill(p.status)}</td>
           <td class="py-2 px-3 text-xs text-slate-500 whitespace-nowrap">${p.updated_at ? new Date(p.updated_at).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" }) : ""}</td>
         </tr>`).join("")}</tbody>
@@ -451,7 +474,8 @@ function renderDrawer() {
             ${field("หยุดแสดง", input("ends_on", 'type="date"'))}
           </div>
           ${field("โน้ต", `<textarea data-d="note" rows="2" class="${INPUT} h-auto py-2 mt-1 w-full">${esc(p.note || "")}</textarea>`)}
-          ${p.id ? `<div class="text-[11px] text-slate-400">แหล่ง ${esc(p.source || "-")}${p.source_id ? ` · รหัส ${esc(p.source_id)}` : ""} · เพิ่มเมื่อ ${p.created_at ? new Date(p.created_at).toLocaleString("th-TH") : "-"}</div>` : ""}
+          ${p.id ? `<div class="text-xs text-slate-600">${STATS_DAYS} วันล่าสุด: ${statsText(p.id)}</div>` : ""}
+          ${p.id ? `<div class="text-[11px] text-slate-400">รหัส Ad Hub #${p.id} (ใช้ปักหมุด) · แหล่ง ${esc(p.source || "-")}${p.source_id ? ` · รหัส ${esc(p.source_id)}` : ""} · เพิ่มเมื่อ ${p.created_at ? new Date(p.created_at).toLocaleString("th-TH") : "-"}</div>` : ""}
         </div>
         <footer class="px-5 py-3 border-t border-slate-200 flex items-center gap-2">
           ${p.id ? `<button data-act="delete-one" class="${BTN_DANGER} h-9">ลบ</button>` : ""}
@@ -675,12 +699,169 @@ function renderModal() {
   const el = $("#modal");
   if (!el) return;
   if (!state.modal) { el.innerHTML = ""; return; }
-  const inner = state.modal === "import" ? importModalHtml() : categoriesModalHtml();
+  const inner = state.modal === "import" ? importModalHtml() : state.modal === "sites" ? sitesModalHtml() : categoriesModalHtml();
   el.innerHTML = `
     <div class="fixed inset-0 z-[60] grid place-items-center p-4">
       <div data-act="close-modal" class="absolute inset-0 bg-slate-900/40"></div>
-      <div class="relative w-full ${state.modal === "categories" ? "max-w-4xl" : "max-w-3xl"} max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl p-6">${inner}</div>
+      <div class="relative w-full ${state.modal === "import" ? "max-w-3xl" : "max-w-4xl"} max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl p-6">${inner}</div>
     </div>`;
+}
+
+
+// ---------- เว็บที่แสดงโฆษณา ----------
+// แต่ละเว็บมีคีย์ที่ใส่ในโค้ดฝัง (ads.js?site=<คีย์>) และจุดที่วางหลายจุด เช่น feed (แทรกในรายการ) detail (หน้ารายละเอียด)
+const listText = (arr) => (arr || []).join(", ");
+const listNums = (v) => [...new Set(String(v || "").split(/[\s,]+/).map(x => parseInt(x.replace(/^#/, ""), 10)).filter(n => n > 0))];
+
+async function openSites() {
+  state.modal = "sites";
+  state.sites = null;
+  renderModal();
+  await loadSites();
+}
+
+async function loadSites() {
+  const sites = await guard(() => HubAPI.sites());
+  if (state.modal !== "sites") return;
+  state.sites = sites || [];
+  const pinned = [...new Set(state.sites.flatMap(s => s.hub_placements.flatMap(p => p.pinned_ids || [])))];
+  const rows = pinned.length ? (await guard(() => HubAPI.productTitles(pinned))) || [] : [];
+  state.pinTitles = Object.fromEntries(rows.map(r => [r.id, r]));
+  renderModal();
+}
+
+function embedCode(site) {
+  const src = new URL("ads.js", location.href).href;
+  const slots = site.hub_placements.length ? site.hub_placements.map(p => `<div data-adhub="${p.key}"></div>`) : [`<div data-adhub="feed"></div>`];
+  return `<script src="${src}?site=${site.key}" async></script>\n${slots.join("\n")}`;
+}
+
+function categoryPicker(pl) {
+  const chosen = new Set(pl.category_ids || []);
+  const names = (pl.category_ids || []).map(catName).filter(Boolean);
+  return `<details class="relative" data-pl-cats>
+    <summary class="${INPUT} flex items-center cursor-pointer list-none truncate">${names.length ? esc(names.join(", ")) : "ทุกหมวด"}</summary>
+    <div class="absolute z-10 mt-1 w-64 max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg p-2">
+      ${state.cats.map(c => `<label class="flex items-center gap-2 px-2 py-1 text-sm rounded hover:bg-slate-50" style="padding-left:${c.parent_id ? 24 : 8}px">
+        <input type="checkbox" value="${c.id}" ${chosen.has(c.id) ? "checked" : ""} class="rounded border-slate-300"> ${esc(c.name)}</label>`).join("")}
+      <div class="px-2 pt-1 text-[11px] text-slate-400">ไม่เลือกเลย = สุ่มจากทุกหมวด เลือกหมวดหลักแล้วได้หมวดย่อยด้วย</div>
+    </div></details>`;
+}
+
+function placementRow(site, pl) {
+  const pins = (pl.pinned_ids || []).map(id => {
+    const t = state.pinTitles[id];
+    return `<span class="inline-flex items-center gap-1 px-1.5 rounded bg-slate-100 ${t && t.status === "active" ? "" : "text-rose-600"}" title="${t ? esc(STATUS[t.status]?.label || "") : "ไม่พบสินค้านี้"}">#${id} ${esc(t ? t.title.slice(0, 24) : "ไม่พบ")}</span>`;
+  }).join(" ");
+  return `
+    <div class="grid grid-cols-12 gap-2 items-start py-2 border-t border-slate-100" data-pl-row data-site="${site.id}" data-id="${pl.id || ""}">
+      <input data-pl="key" value="${esc(pl.key || "")}" placeholder="feed" class="${INPUT} col-span-2" title="คีย์ของจุดที่วาง ใช้ใน data-adhub">
+      <input data-pl="label" value="${esc(pl.label || "")}" placeholder="ชื่อเรียก" class="${INPUT} col-span-2">
+      <input data-pl="slots" type="number" min="1" max="24" value="${esc(pl.slots || 4)}" class="${INPUT} col-span-1" title="จำนวนโฆษณาต่อหน้า">
+      <input data-pl="positions" value="${esc(listText(pl.positions))}" placeholder="2, 6, 10" class="${INPUT} col-span-2" title="แทรกหลังรายการที่ (เว็บที่วาดเองใช้)">
+      <div class="col-span-2">${categoryPicker(pl)}</div>
+      <div class="col-span-3 flex items-center justify-end gap-1">
+        <label class="inline-flex items-center gap-1 text-xs text-slate-600 mr-1"><input data-pl="enabled" type="checkbox" ${pl.enabled === false ? "" : "checked"} class="rounded border-slate-300"> เปิด</label>
+        <button data-act="save-placement" class="${BTN} h-9">${pl.id ? "บันทึก" : "เพิ่ม"}</button>
+        ${pl.id ? `<button data-act="delete-placement" data-id="${pl.id}" class="${BTN_DANGER} h-9 px-2">ลบ</button>` : ""}
+      </div>
+      <div class="col-span-12 flex items-center gap-2">
+        <span class="text-[11px] text-slate-500 shrink-0">ปักหมุด</span>
+        <input data-pl="pinned_ids" value="${esc(listText(pl.pinned_ids))}" placeholder="รหัสสินค้า เช่น 12, 40 (ดูได้ในแผงแก้ไขสินค้า) ขึ้นก่อนเสมอตามลำดับนี้" class="${INPUT} h-8 flex-1 text-xs">
+      </div>
+      ${pins ? `<div class="col-span-12 text-[11px] text-slate-500 flex flex-wrap gap-1">${pins}</div>` : ""}
+    </div>`;
+}
+
+function siteCard(site) {
+  return `
+    <section class="rounded-xl border border-slate-200 p-4" data-site-row data-id="${site.id}">
+      <div class="grid grid-cols-12 gap-2 items-center">
+        <input data-s="name" value="${esc(site.name)}" placeholder="ชื่อเว็บ" class="${INPUT} col-span-4">
+        <input data-s="key" value="${esc(site.key)}" placeholder="คีย์" class="${INPUT} col-span-2" title="ตัวเล็ก ตัวเลข ขีด">
+        <input data-s="domain" value="${esc(site.domain || "")}" placeholder="โดเมน (จดไว้ดู)" class="${INPUT} col-span-3">
+        <div class="col-span-3 flex justify-end gap-1">
+          <button data-act="save-site" class="${BTN} h-9">บันทึก</button>
+          <button data-act="delete-site" data-id="${site.id}" class="${BTN_DANGER} h-9 px-2">ลบเว็บ</button>
+        </div>
+      </div>
+      <div class="mt-3 grid grid-cols-12 gap-2 text-[11px] font-medium text-slate-500">
+        <span class="col-span-2">จุดที่วาง</span><span class="col-span-2">ชื่อเรียก</span><span class="col-span-1">จำนวน</span>
+        <span class="col-span-2">ตำแหน่งในหน้า</span><span class="col-span-2">หมวดที่ให้สุ่ม</span>
+      </div>
+      ${site.hub_placements.map(pl => placementRow(site, pl)).join("")}
+      ${placementRow(site, { slots: 4, enabled: true })}
+      <div class="mt-3">
+        <div class="flex items-center justify-between text-[11px] text-slate-500"><span>โค้ดฝังในเว็บนี้</span>
+          <button data-act="copy-embed" data-id="${site.id}" class="text-brand-600 hover:underline">คัดลอก</button></div>
+        <pre class="mt-1 p-3 bg-slate-900 text-slate-100 rounded-lg text-xs whitespace-pre-wrap break-all" data-embed="${site.id}">${esc(embedCode(site))}</pre>
+      </div>
+    </section>`;
+}
+
+function sitesModalHtml() {
+  const body = state.sites === null
+    ? `<div class="py-10 text-center text-sm text-slate-400">กำลังโหลด…</div>`
+    : `${state.sites.length ? "" : `<div class="rounded-xl border border-dashed border-slate-300 py-6 text-center text-sm text-slate-500">ยังไม่มีเว็บ เพิ่มเว็บแรกด้านล่าง</div>`}
+       ${state.sites.map(siteCard).join("")}
+       <section class="rounded-xl bg-slate-50 p-4" data-site-row data-id="">
+         <div class="text-sm font-semibold text-slate-700">เพิ่มเว็บ</div>
+         <div class="mt-2 grid grid-cols-12 gap-2">
+           <input data-s="name" placeholder="ชื่อเว็บ เช่น ย้ายราชการ" class="${INPUT} col-span-5">
+           <input data-s="key" placeholder="คีย์ เช่น transfer" class="${INPUT} col-span-3">
+           <input data-s="domain" placeholder="โดเมน" class="${INPUT} col-span-2">
+           <button data-act="save-site" class="${BTN_PRIMARY} h-9 col-span-2">เพิ่มเว็บ</button>
+         </div>
+       </section>`;
+  return `
+    <h2 class="text-lg font-semibold">เว็บที่แสดงโฆษณา</h2>
+    <p class="mt-1 text-sm text-slate-500">แต่ละเว็บฝังสคริปต์บรรทัดเดียว แล้ววางช่อง <code class="px-1 bg-slate-100 rounded">data-adhub="คีย์จุดที่วาง"</code> ตรงที่อยากให้โฆษณาขึ้น
+      สินค้าที่ขึ้นคือ "กำลังแสดง" เท่านั้น ปักหมุดขึ้นก่อน ที่เหลือสุ่มตามน้ำหนัก ค่าคอม และคลิก ลิงก์บนการ์ดนับคลิกผ่าน /go/</p>
+    <div class="mt-4 space-y-4 max-h-[65vh] overflow-y-auto pr-1">${body}</div>
+    <div class="mt-5 flex justify-end"><button data-act="close-modal" class="${BTN} h-9">เสร็จ</button></div>`;
+}
+
+async function saveSite(btn) {
+  const row = btn.closest("[data-site-row]");
+  const get = (k) => row.querySelector(`[data-s=${k}]`).value.trim();
+  const site = { id: row.dataset.id ? Number(row.dataset.id) : null, name: get("name"), key: get("key").toLowerCase(), domain: get("domain") };
+  if (!site.name) return toast("ใส่ชื่อเว็บก่อน", "error");
+  if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(site.key)) return toast("คีย์ใช้ได้เฉพาะ a-z 0-9 และขีด เช่น transfer", "error");
+  if (await guard(() => HubAPI.saveSite(site), site.id ? "บันทึกเว็บแล้ว" : "เพิ่มเว็บแล้ว")) await loadSites();
+}
+
+async function deleteSite(id) {
+  const site = state.sites.find(s => s.id === id);
+  if (!site || !confirm(`ลบเว็บ "${site.name}" และจุดที่วางทั้งหมดของเว็บนี้? เว็บที่ฝังโค้ดไว้จะไม่มีโฆษณาขึ้น`)) return;
+  if (await guard(() => HubAPI.deleteSite(id), "ลบเว็บแล้ว")) await loadSites();
+}
+
+async function savePlacement(btn) {
+  const row = btn.closest("[data-pl-row]");
+  const get = (k) => row.querySelector(`[data-pl=${k}]`);
+  const pl = {
+    id: row.dataset.id ? Number(row.dataset.id) : null,
+    site_id: Number(row.dataset.site),
+    key: get("key").value.trim().toLowerCase(),
+    label: get("label").value.trim(),
+    slots: Math.min(24, Math.max(1, Number(get("slots").value) || 1)),
+    positions: listNums(get("positions").value).sort((a, b) => a - b),
+    pinned_ids: listNums(get("pinned_ids").value),
+    category_ids: [...row.querySelectorAll("[data-pl-cats] input:checked")].map(i => Number(i.value)),
+    enabled: get("enabled").checked,
+  };
+  if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(pl.key)) return toast("คีย์จุดที่วางใช้ได้เฉพาะ a-z 0-9 _ - เช่น feed", "error");
+  if (await guard(() => HubAPI.savePlacement(pl), pl.id ? "บันทึกจุดที่วางแล้ว" : "เพิ่มจุดที่วางแล้ว")) await loadSites();
+}
+
+async function deletePlacement(id) {
+  if (!confirm("ลบจุดที่วางนี้? ช่องนี้บนเว็บจะไม่มีโฆษณาขึ้น")) return;
+  if (await guard(() => HubAPI.deletePlacement(id), "ลบจุดที่วางแล้ว")) await loadSites();
+}
+
+async function copyEmbed(btn) {
+  const text = document.querySelector(`[data-embed="${btn.dataset.id}"]`)?.textContent || "";
+  try { await navigator.clipboard.writeText(text); toast("คัดลอกโค้ดแล้ว"); } catch (_) { toast("คัดลอกไม่ได้ ลากเลือกข้อความแทน", "error"); }
 }
 
 // ---------- เหตุการณ์ ----------
@@ -725,6 +906,12 @@ async function onClick(e) {
     case "run-import": runImport(); break;
     case "save-cat": saveCat(el); break;
     case "delete-cat": deleteCat(Number(el.dataset.id)); break;
+    case "open-sites": openSites(); break;
+    case "save-site": saveSite(el); break;
+    case "delete-site": deleteSite(Number(el.dataset.id)); break;
+    case "save-placement": savePlacement(el); break;
+    case "delete-placement": deletePlacement(Number(el.dataset.id)); break;
+    case "copy-embed": copyEmbed(el); break;
     case "signout": await HubAPI.signOut(); boot(); break;
   }
 }
