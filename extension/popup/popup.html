@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shopee Affiliate & CSV Dashboard (TH)</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <header class="popup-header">
+      <div class="brand">
+        <div class="brand-icon">📦</div>
+        <div>
+          <h1 class="brand-title">Shopee Affiliate TH</h1>
+          <p class="brand-subtitle">จัดการ CSV & ดาวน์โหลดลิงก์</p>
+        </div>
+      </div>
+      <span class="version-badge">v1.0.0</span>
+    </header>
+
+    <div class="status-card" id="status-card">
+      <div class="status-indicator">
+        <span class="dot" id="status-dot"></span>
+        <span class="status-text" id="status-text">กำลังตรวจสอบหน้าเว็บ...</span>
+      </div>
+      <div class="count-box" id="count-box">
+        <div>
+          <span class="count-val" id="product-count">0</span>
+          <span class="count-label">ในหน้านี้</span>
+        </div>
+        <div style="text-align: right; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 10px;">
+          <span class="count-val" id="db-count" style="color: #10b981;">0</span>
+          <span class="count-label">ในแดชบอร์ด</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="action-section">
+      <button id="open-dashboard-btn" class="btn-primary">
+        📊 เปิดแดชบอร์ดสินค้า & CSV
+      </button>
+      <button id="open-panel-btn" class="btn-secondary">
+        🚀 เปิดแผงเครื่องมือดึงข้อมูล Shopee
+      </button>
+      <button id="open-shopee-btn" class="btn-secondary" style="display: none;">
+        🌐 เปิดหน้า Shopee Affiliate ไทย
+      </button>
+    </div>
+
+    <div class="features-list">
+      <div class="feature-item">
+        <span class="feat-icon">📊</span>
+        <span class="feat-desc">ส่งออกและนำเข้าไฟล์ CSV สินค้า Shopee</span>
+      </div>
+      <div class="feature-item">
+        <span class="feat-icon">🔗</span>
+        <span class="feat-desc">สร้างลิงก์สั้น Affiliate (s.shopee.co.th) อัตโนมัติ</span>
+      </div>
+      <div class="feature-item">
+        <span class="feat-icon">📁</span>
+        <span class="feat-desc">ดาวน์โหลดรูปภาพ HD และไฟล์ CSV ในรูปแบบ ZIP</span>
+      </div>
+      <div class="feature-item">
+        <span class="feat-icon">📄</span>
+        <span class="feat-desc">ดึงข้อมูลสินค้าหลายหน้าอัตโนมัติ (Multi-Page)</span>
+      </div>
+    </div>
+
+    <footer class="popup-footer">
+      <span>100% Client-Side • Shopee Affiliate TH Suite</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🧵 Threads Single-Post Controller & Live Debug Console (TH)</title>
+  <link rel="stylesheet" href="poster-panel.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="poster-panel-body">
+  
+  <!-- APP WRAPPER -->
+  <div class="panel-app-wrapper">
+
+    <!-- =========================================================================
+         1. CLEAN TOP HEADER
+         ========================================================================= -->
+    <header class="panel-header">
+      <div class="header-left">
+        <div class="brand-title-group">
+          <span class="brand-icon">🧵</span>
+          <div class="brand-headings">
+            <h1 class="brand-title">ระบบควบคุมการโพสต์ Threads</h1>
+            <span class="brand-subtitle">ศูนย์ควบคุมการโพสต์รายชิ้นและแบบต่อเนื่อง (Thai Edition)</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="header-center">
+        <!-- Live Threads Connection Status -->
+        <div class="threads-status-pill" id="threads-status-pill" title="สถานะการเชื่อมต่อแท็บ Threads Web">
+          <span class="threads-dot connected" id="threads-status-dot"></span>
+          <span class="threads-status-label" id="threads-status-text">🟢 เชื่อมต่อ Threads Web แล้ว</span>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <button id="btn-focus-threads" class="btn-header btn-open-threads" title="เปิดหรือสลับไปที่แท็บ Threads Web ที่ใช้งานอยู่">
+          <span class="btn-icon">🔗</span>
+          <span class="btn-text">เปิดแท็บ Threads</span>
+        </button>
+        <button id="btn-open-dashboard" class="btn-header btn-header-secondary" title="เปิดแดชบอร์ดหลัก">
+          <span class="btn-icon">📊</span>
+          <span class="btn-text">แดชบอร์ด</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- =========================================================================
+         2. MAIN TWO-COLUMN WORKSPACE
+         ========================================================================= -->
+    <main class="panel-workspace-grid">
+
+      <!-- =======================================================================
+           LEFT COLUMN: ACTIVE PRODUCT CARD & ACTION CONTROLS
+           ======================================================================= -->
+      <section class="controller-column">
+
+        <!-- QUEUE NAVIGATOR & SELECTOR BAR -->
+        <div class="panel-card queue-bar-card">
+          <div class="queue-bar-header">
+            <div class="queue-counter-badge" id="preview-queue-index">
+              รายการ <b id="queue-position-badge">1 / 1</b>
+            </div>
+            <span class="queue-helper-text">เลือกสินค้าในคิว:</span>
+          </div>
+
+          <div class="queue-bar-controls">
+            <button id="btn-prev-item" class="btn-nav-arrow" title="สินค้าก่อนหน้า (ปุ่มลูกศรซ้าย)">
+              <span>⬅️ ก่อนหน้า</span>
+            </button>
+            
+            <div class="queue-select-wrapper">
+              <select id="queue-select-dropdown" class="queue-select" title="เลือกสินค้าที่ต้องการใช้งาน">
+                <option value="">(กำลังโหลดคิว...)</option>
+              </select>
+            </div>
+
+            <button id="btn-next-item" class="btn-nav-arrow" title="สินค้าถัดไป (ปุ่มลูกศรขวา)">
+              <span>ถัดไป ➡️</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- ACTIVE PRODUCT PREVIEW CARD -->
+        <div class="panel-card product-preview-card" id="preview-container">
+          
+          <!-- Empty State (Shown when queue is empty) -->
+          <div class="preview-empty-state" id="preview-empty-state" style="display: none;">
+            <div class="empty-icon">📭</div>
+            <h3 class="empty-title">ยังไม่มีสินค้าในคิว</h3>
+            <p class="empty-desc">เปิดหน้าสินค้า Shopee และเพิ่มรายการเข้าสู่คิวโพสต์ผ่านหน้าต่างป๊อปอัปของส่วนขยาย</p>
+          </div>
+
+          <!-- Main Product Content Wrap -->
+          <div class="preview-content-wrap" id="preview-content-wrap">
+            
+            <!-- Product Header: Title & Status -->
+            <div class="product-header-row">
+              <div class="product-status-wrap">
+                <span class="preview-status-pill status-ready" id="preview-status-badge">พร้อมโพสต์</span>
+              </div>
+              <span class="product-store-badge">🛍️ สินค้า Shopee TH</span>
+            </div>
+
+            <!-- Product Body Grid: Image on Left/Top, Meta on Right -->
+            <div class="product-body-grid">
+              
+              <!-- Product Image Preview -->
+              <div class="product-image-section">
+                <div class="image-viewport">
+                  <img id="preview-image" src="https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=600&auto=format&fit=crop&q=80" alt="ตัวอย่างรูปภาพสินค้า" class="main-preview-image">
+                  <div class="image-badge-counter" id="preview-img-counter">1 / 1 รูป HD</div>
+                </div>
+
+                <!-- Thumbnail Navigation Strip -->
+                <div class="thumbnail-nav-row" id="thumbnail-nav-row">
+                  <button id="btn-prev-image" class="btn-thumb-nav" title="รูปก่อนหน้า">◀</button>
+                  <div class="thumbnail-strip" id="preview-thumb-strip"></div>
+                  <button id="btn-next-image" class="btn-thumb-nav" title="รูปถัดไป">▶</button>
+                </div>
+              </div>
+
+              <!-- Product Details & Pricing -->
+              <div class="product-info-section">
+                <h2 class="product-title" id="preview-title" title="ชื่อสินค้า Shopee">
+                  กระเป๋าสะพายข้างผู้หญิง หนัง PU เกรดพรีเมียม ดีไซน์มินิมอลวินเทจ
+                </h2>
+
+                <div class="product-pricing-row">
+                  <div class="price-pill-primary">
+                    <span class="price-value" id="preview-price">฿199</span>
+                  </div>
+                  <span class="discount-pill" id="preview-discount">-40%</span>
+                  <div class="rating-pill">
+                    <span class="rating-val" id="preview-rating">⭐ 4.9</span>
+                    <span class="sales-val" id="preview-sold">ขายแล้ว 2.4พัน ชิ้น</span>
+                  </div>
+                </div>
+
+                <!-- Shopee Affiliate Link Field -->
+                <div class="field-group affiliate-field-group">
+                  <div class="field-label-row">
+                    <label class="field-label" for="preview-shortlink">🔗 ลิงก์ Shopee Affiliate:</label>
+                  </div>
+                  <div class="input-with-button-group">
+                    <input type="text" id="preview-shortlink" class="text-input" readonly value="https://s.shopee.co.th/7V1bKx9zQ">
+                    <button id="btn-copy-shortlink" class="btn-action-sm btn-copy-link" title="คัดลอกลิงก์สั้น Affiliate">
+                      <span class="btn-icon">📋</span>
+                      <span>คัดลอก</span>
+                    </button>
+                    <a id="btn-open-shopee-link" href="https://s.shopee.co.th/7V1bKx9zQ" target="_blank" rel="noopener noreferrer" class="btn-action-icon" title="เปิดลิงก์สินค้าในแท็บใหม่">
+                      <span>↗️</span>
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Editable Caption Area -->
+            <div class="caption-editor-section">
+              <div class="field-label-row caption-label-row">
+                <div class="label-with-icon">
+                  <span class="icon">✍️</span>
+                  <label class="field-label" for="preview-caption">ร่างแคปชัน Threads (รองรับ Spintax):</label>
+                </div>
+                <div class="caption-char-count-wrap">
+                  <span id="caption-char-count">0</span> / 500 ตัวอักษร
+                </div>
+              </div>
+
+              <textarea id="preview-caption" class="caption-textarea" rows="4" placeholder="เขียนแคปชัน Threads ที่นี่...">{แนะนำ|ชี้เป้า|ป้ายยา} กระเป๋าสะพายข้างผู้หญิงทรงสวย มินิมอลสุดๆ! ✨
+
+งานหนัง PU เกรดพรีเมียม จุของได้เยอะ แมทช์ง่ายทุกลุค 👜🔥
+
+👇 เช็คราคา & พิกัดส่วนลดพิเศษตรงนี้เลย:
+https://s.shopee.co.th/7V1bKx9zQ
+
+#ป้ายยาShopee #รีวิวShopee #แฟชั่นผู้หญิง #กระเป๋าสะพายข้าง #OOTDThailand</textarea>
+
+              <div class="caption-toolbar-row">
+                <div class="caption-toolbar-left">
+                  <button id="btn-spin-caption" class="btn-action-sm btn-spintax" title="สุ่มข้อความแคปชันจากเทมเพลต Spintax">
+                    <span class="btn-icon">🎲</span>
+                    <span>สุ่มแคปชัน Spintax</span>
+                  </button>
+                </div>
+
+                <div class="caption-toolbar-right">
+                  <button id="btn-save-caption" class="btn-action-sm btn-save" title="บันทึกร่างแคปชันสำหรับสินค้านี้">
+                    <span class="btn-icon">💾</span>
+                    <span>บันทึกร่าง</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- FOCUSED ACTION & EXECUTION PANEL -->
+        <div class="panel-card action-controls-card">
+          
+          <!-- BIG HERO PRIMARY ACTION BUTTON -->
+          <div class="primary-post-action-wrap">
+            <button id="btn-post-now" class="btn-hero-post" title="สั่งโพสต์สินค้ารายการนี้ไปยังแท็บ Threads Web ที่เปิดอยู่ทันที">
+              <span class="btn-hero-icon">🚀</span>
+              <div class="btn-hero-labels">
+                <span class="btn-hero-main-text">โพสต์รายการนี้ทันที</span>
+                <span class="btn-hero-sub-text">ส่งแคปชัน & รูปภาพไปยังแท็บ Threads Web ที่เปิดอยู่</span>
+              </div>
+            </button>
+          </div>
+
+          <!-- BATCH / AUTO-POST CONTROLS (COMPACT & CLEAN) -->
+          <div class="autopost-compact-bar">
+            <div class="autopost-controls-left">
+              <button id="btn-start-autopost" class="btn-compact-auto btn-start" title="เริ่มโพสต์อัตโนมัติตามลำดับคิว">
+                <span>▶ เริ่มโพสต์อัตโนมัติ</span>
+              </button>
+              <button id="btn-pause-autopost" class="btn-compact-auto btn-pause" style="display: none;" title="พักการโพสต์อัตโนมัติ">
+                <span>⏸ พักชั่วคราว</span>
+              </button>
+              <button id="btn-stop-autopost" class="btn-compact-auto btn-stop" disabled title="หยุดการโพสต์อัตโนมัติ">
+                <span>⏹ หยุด</span>
+              </button>
+            </div>
+
+            <div class="autopost-status-right">
+              <span class="posting-status-indicator idle" id="posting-status-badge">พร้อมทำงาน</span>
+              <div class="countdown-wrap" title="เวลานับถอยหลังก่อนโพสต์ถัดไป">
+                <span class="cd-label">ถัดไป:</span>
+                <span class="countdown-timer" id="countdown-display">--:--</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Progress track for auto-posting -->
+          <div class="progress-track-wrapper">
+            <div class="progress-fill-bar" id="countdown-progress" style="width: 0%;"></div>
+          </div>
+
+        </div>
+
+      </section>
+
+      <!-- =======================================================================
+           RIGHT COLUMN: SIMPLE & CLEAN DEBUG CONSOLE
+           ======================================================================= -->
+      <section class="terminal-column">
+        <div class="panel-card terminal-window-card">
+          
+          <!-- TERMINAL HEADER BAR -->
+          <div class="terminal-header-bar">
+            <div class="terminal-window-controls">
+              <span class="window-dot dot-red"></span>
+              <span class="window-dot dot-yellow"></span>
+              <span class="window-dot dot-green"></span>
+            </div>
+
+            <div class="terminal-title-meta">
+              <span class="terminal-icon">💻</span>
+              <h2 class="terminal-title">คอนโซลตรวจสอบการทำงานสด (Live Debug)</h2>
+            </div>
+
+            <div class="terminal-header-actions">
+              <button id="btn-clear-logs" class="btn-term-action" title="ล้างประวัติล็อกทั้งหมด">
+                <span class="icon">🗑️</span>
+                <span class="text">ล้างล็อก</span>
+              </button>
+              <button id="btn-copy-logs" class="btn-term-action" title="คัดลอกล็อกทั้งหมดไปยังคลิปบอร์ด">
+                <span class="icon">📋</span>
+                <span class="text">คัดลอกล็อก</span>
+              </button>
+              <button id="btn-export-logs" class="btn-term-action btn-term-export" title="ดาวน์โหลดล็อกเป็นไฟล์ .txt">
+                <span class="icon">💾</span>
+                <span class="text">ส่งออก</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- TERMINAL FILTER & SEARCH TOOLBAR -->
+          <div class="terminal-toolbar">
+            <!-- Filter Pills -->
+            <div class="filter-pills-wrap">
+              <button class="filter-pill active" data-log-filter="ALL" title="แสดงล็อกทุกระดับ">
+                <span>ทั้งหมด</span>
+                <span class="pill-badge" id="count-log-all">0</span>
+              </button>
+              <button class="filter-pill filter-debug" data-log-filter="DEBUG" title="กรองเฉพาะ DEBUG">
+                <span>DEBUG</span>
+                <span class="pill-badge" id="count-log-debug">0</span>
+              </button>
+              <button class="filter-pill filter-dom" data-log-filter="DOM" title="กรองเฉพาะ DOM">
+                <span>DOM</span>
+                <span class="pill-badge" id="count-log-dom">0</span>
+              </button>
+              <button class="filter-pill filter-info" data-log-filter="INFO" title="กรองเฉพาะ INFO">
+                <span>INFO</span>
+                <span class="pill-badge" id="count-info">0</span>
+              </button>
+              <button class="filter-pill filter-success" data-log-filter="SUCCESS" title="กรองเฉพาะ SUCCESS">
+                <span>SUCCESS</span>
+                <span class="pill-badge" id="count-log-success">0</span>
+              </button>
+              <button class="filter-pill filter-error" data-log-filter="ERROR" title="กรองเฉพาะ ERROR">
+                <span>ERROR</span>
+                <span class="pill-badge" id="count-log-error">0</span>
+              </button>
+            </div>
+
+            <!-- Search & Auto-Scroll -->
+            <div class="terminal-options-row">
+              <div class="terminal-search-box">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="log-search-input" class="terminal-search-input" placeholder="ค้นหาล็อก / โมดูล...">
+              </div>
+
+              <label class="autoscroll-toggle-label" title="เลื่อนหน้าจอลงล่างสุดอัตโนมัติ">
+                <input type="checkbox" id="btn-toggle-autoscroll" checked>
+                <span class="toggle-text">เลื่อนอัตโนมัติ</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- TERMINAL SCREEN / MONOSPACE LOG STREAM -->
+          <div class="terminal-screen-wrapper">
+            <div class="terminal-screen" id="log-container">
+              <!-- Logs will be dynamically appended here by PanelDebugConsole -->
+            </div>
+          </div>
+
+          <!-- TERMINAL FOOTER STATUS BAR -->
+          <div class="terminal-footer-bar">
+            <div class="term-foot-item">
+              <span class="foot-dot live-dot"></span>
+              <span>เชื่อมต่อคอนโซลสดแล้ว</span>
+            </div>
+            <div class="term-foot-item text-muted">
+              <span>ช่องทาง: chrome.runtime</span>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+    </main>
+
+  </div>
+
+  <!-- TOAST NOTIFICATION CONTAINER -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- EXTENSION & UI SCRIPTS -->
+  <script src="../libs/constants.js"></script>
+  <script src="../libs/logger.js"></script>
+  <script src="../libs/spintax.js"></script>
+  <script src="../libs/db.js"></script>
+  <script src="poster-panel.js"></script>
+
+  <!-- SMALL UI HELPER SCRIPT FOR EXTRA CONTROLS -->
+  <script>
+    // Simple UI bindings for Dashboard link & character counter
+    document.addEventListener('DOMContentLoaded', () => {
+      // 1. Dashboard navigation
+      const btnDashboard = document.getElementById('btn-open-dashboard');
+      if (btnDashboard) {
+        btnDashboard.addEventListener('click', () => {
+          if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) {
+            window.open(chrome.runtime.getURL('dashboard/dashboard.html'), '_blank');
+          } else {
+            window.location.href = '../dashboard/dashboard.html';
+          }
+        });
+      }
+
+      // 2. Character counter updater
+      const captionTextarea = document.getElementById('preview-caption');
+      const charCounter = document.getElementById('caption-char-count');
+      function updateCharCount() {
+        if (captionTextarea && charCounter) {
+          charCounter.textContent = captionTextarea.value.length;
+        }
+      }
+      if (captionTextarea) {
+        captionTextarea.addEventListener('input', updateCharCount);
+        updateCharCount();
+      }
+
+      // 3. Open shopee link updater
+      const shortlinkInput = document.getElementById('preview-shortlink');
+      const openShopeeBtn = document.getElementById('btn-open-shopee-link');
+      if (shortlinkInput && openShopeeBtn) {
+        const syncShopeeHref = () => {
+          if (shortlinkInput.value && shortlinkInput.value.startsWith('http')) {
+            openShopeeBtn.href = shortlinkInput.value;
+          }
+        };
+        shortlinkInput.addEventListener('change', syncShopeeHref);
+      }
+    });
+  </script>
+</body>
+</html>
