@@ -393,7 +393,7 @@ function renderBulkbar() {
   const n = state.selected.size;
   if (!n) { el.innerHTML = ""; return; }
   el.innerHTML = `
-    <div class="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-4xl">
+    <div class="fixed bottom-20 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-4xl">
       <div class="flex flex-wrap items-center gap-2 px-4 py-3 rounded-2xl bg-slate-900 text-white shadow-2xl">
         <span class="text-sm font-semibold mr-1">เลือก ${fmtNum(n)} รายการ</span>
         <select data-bulk="category" class="h-9 px-2 rounded-lg bg-slate-800 border border-slate-700 text-sm">
@@ -488,7 +488,8 @@ function renderDrawer() {
           </div>` : ""}
           ${p.id ? `<div class="text-[11px] text-slate-400">รหัส Ad Hub #${p.id} (ใช้ปักหมุด) · แหล่ง ${esc(p.source || "-")}${p.source_id ? ` · รหัส ${esc(p.source_id)}` : ""} · เพิ่มเมื่อ ${p.created_at ? new Date(p.created_at).toLocaleString("th-TH") : "-"}</div>` : ""}
         </div>
-        <footer class="px-5 py-3 border-t border-slate-200 flex items-center gap-2">
+        <!-- เว้นด้านล่างให้พ้นป้าย "Powered by Netlify" ที่ลอยอยู่มุมขวาล่าง -->
+        <footer class="px-5 pt-3 pb-20 border-t border-slate-200 flex items-center gap-2">
           ${p.id ? `<button data-act="delete-one" class="${BTN_DANGER} h-9">ลบ</button>` : ""}
           <div class="flex-1"></div>
           <button data-act="close-drawer" class="${BTN} h-9">ยกเลิก</button>
