@@ -161,8 +161,8 @@
         <div class="shopee-dl-option-row">
           <span>🖼️ รูปทั้งหมดและรายละเอียด:</span>
           <select id="dl-detail-select" title="เปิดหน้าสินค้าทีละชิ้นในแท็บเบื้องหลัง (ช้าลงชิ้นละหลายวินาที)">
-            <option value="detail" selected>เปิดหน้าสินค้า (ไม่เจอให้ไปทางลิงก์ affiliate)</option>
-            <option value="detail-noaff">เปิดหน้าสินค้า (ไม่ใช้ลิงก์ affiliate)</option>
+            <option value="detail-noaff" selected>เปิดหน้าสินค้า (ไม่ใช้ลิงก์ affiliate)</option>
+            <option value="detail">เปิดหน้าสินค้า ไม่เจอให้ไปทางลิงก์ affiliate (Shopee จะนับเป็นคลิก)</option>
             <option value="none">ไม่ต้อง (รูปปกอย่างเดียว เร็วกว่า)</option>
           </select>
         </div>
