@@ -40,7 +40,7 @@
       return must(await client.from("hub_categories").select("*").order("sort").order("name"));
     },
     async saveCategory(cat) {
-      const row = { name: cat.name, parent_id: cat.parent_id || null, sort: cat.sort || 0, keywords: cat.keywords || [] };
+      const row = { name: cat.name, parent_id: cat.parent_id || null, sort: cat.sort || 0, keywords: cat.keywords || [], ad_level: cat.ad_level ?? 2 };
       const q = cat.id ? client.from("hub_categories").update(row).eq("id", cat.id) : client.from("hub_categories").insert(row);
       return must(await q.select().single());
     },

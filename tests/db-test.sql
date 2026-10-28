@@ -307,3 +307,46 @@ do $$ begin
   assert hub_dashboard(30) -> 'totals' ->> 'clicks' = '0', 'คนที่ไม่ใช่แอดมินต้องไม่เห็นสถิติ';
 end $$;
 reset role;
+
+-- ---------- ปิด/ลดการแสดงทั้งหมวด ----------
+set request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
+set role authenticated;
+update hub_categories set ad_level = 0 where name = 'แฟชั่นผู้หญิง';
+reset role;
+set role anon;
+do $$
+declare r jsonb; ids bigint[]; i integer; few integer := 0;
+begin
+  for i in 1..40 loop
+    r := hub_ads('transfer', 'detail');
+    assert (r -> 'ads' -> 0 ->> 'id')::bigint not in (1, 2, 3), format('หมวดที่ปิด (รวมหมวดย่อย) ต้องไม่ถูกสุ่ม ได้ %s', r -> 'ads');
+  end loop;
+  r := hub_ads('transfer', 'feed');
+  select array_agg((a ->> 'id')::bigint) into ids from jsonb_array_elements(r -> 'ads') a;
+  assert ids = '{4}', format('จุดที่เลือกแต่หมวดที่ปิด เหลือแค่ปักหมุด ได้ %s', ids);
+  r := hub_ads('transfer', 'detail', '', 1, '{}', '{3}');
+  assert r -> 'ads' -> 0 ->> 'id' = '3', 'ระบุรหัสสินค้ามาตรงๆ ยังแสดง';
+end $$;
+reset role;
+update hub_categories set ad_level = 2 where name = 'แฟชั่นผู้หญิง';
+update hub_categories set ad_level = 1 where name = 'คอมพิวเตอร์';
+set role anon;
+do $$
+declare r jsonb; i integer; comp integer := 0;
+begin
+  -- คอมพิวเตอร์ (4, 5 น้ำหนักสูง) แสดงน้อย: ขึ้นน้อยกว่าตอนปกติ (ปกติราว 340/400 คาดว่าเหลือราว 235)
+  for i in 1..400 loop
+    r := hub_ads('transfer', 'detail');
+    if (r -> 'ads' -> 0 ->> 'id')::bigint in (4, 5) then comp := comp + 1; end if;
+  end loop;
+  assert comp between 150 and 290, format('แสดงน้อยต้องลดโอกาสแต่ยังขึ้นได้ ได้ %s/400', comp);
+end $$;
+reset role;
+update hub_categories set ad_level = 2;
+do $$ begin
+  begin
+    update hub_categories set ad_level = 5;
+    raise exception 'ad_level นอกช่วงต้องไม่ผ่าน';
+  exception when check_violation then null;
+  end;
+end $$;

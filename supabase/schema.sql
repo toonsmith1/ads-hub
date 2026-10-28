@@ -24,6 +24,10 @@ create table if not exists public.hub_categories (
   keywords text[] not null default '{}',
   created_at timestamptz not null default now()
 );
+-- การแสดงโฆษณาของสินค้าในหมวด: 2 ปกติ, 1 แสดงน้อย (โอกาสถูกสุ่ม 1/5), 0 ปิด (ไม่สุ่ม) หมวดย่อยทำตามหมวดหลักด้วย
+alter table public.hub_categories add column if not exists ad_level smallint not null default 2;
+alter table public.hub_categories drop constraint if exists hub_categories_ad_level_check;
+alter table public.hub_categories add constraint hub_categories_ad_level_check check (ad_level between 0 and 2);
 
 create table if not exists public.hub_products (
   id bigserial primary key,
@@ -419,20 +423,27 @@ begin
 
   with live as (
     select hp.*, (select count(*) from hub_events e
-                  where e.product_id = hp.id and e.event = 'click' and e.event_at > now() - interval '30 days') as clicks
+                  where e.product_id = hp.id and e.event = 'click' and e.event_at > now() - interval '30 days') as clicks,
+           -- ระดับการแสดงของหมวด (หมวดย่อยใช้ระดับที่ต่ำกว่าระหว่างตัวเองกับหมวดหลัก) 0 ปิด 1 น้อย 2 ปกติ
+           least(coalesce(c.ad_level, 2), coalesce(cp.ad_level, 2)) as cat_level
     from hub_products hp
+    left join hub_categories c on c.id = hp.category_id
+    left join hub_categories cp on cp.id = c.parent_id
     where hub_is_live(hp) and not (hp.id = any (coalesce(p_exclude, '{}')))
   ),
   ranked as (
     select l.*,
            case when l.id = any (p_products) then 0
                 when l.id = any (pl.pinned_ids) then 1
+                -- หมวดที่ปิดไว้ไม่ถูกสุ่ม แต่ที่ปักหมุดหรือระบุรหัสสินค้ามาตรงๆ ยังแสดง
+                when l.cat_level = 0 then null
                 when l.category_id = any (ctx) then 2
                 when cats is null or l.category_id = any (cats) then 3
            end as tier,
            coalesce(array_position(p_products, l.id), array_position(pl.pinned_ids, l.id)) as pin_order,
            -- Efraimidis–Spirakis: ค่าน้อยได้ก่อน ยิ่งน้ำหนักมากยิ่งมีโอกาสได้ค่าน้อย
-           -ln(1 - random()) / (l.weight * (1 + coalesce(l.commission, 0) / 10.0) * (1 + ln(1 + l.clicks))) as roll
+           -ln(1 - random()) / (l.weight * (1 + coalesce(l.commission, 0) / 10.0) * (1 + ln(1 + l.clicks))
+                                * case when l.cat_level = 1 then 0.2 else 1 end) as roll
     from live l
   ),
   picked as (

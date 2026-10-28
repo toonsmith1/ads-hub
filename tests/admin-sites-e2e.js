@@ -113,6 +113,23 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", "
   await page.click("#nav a[href='#']");
   await page.waitForSelector("article[data-act=edit]");
 
+  // ปิด/ลดการแสดงทั้งหมวด: เลือกหมวดแล้วกดระดับ ได้ป้ายในแถบหมวด และตั้งจากหน้าจัดการหมวดได้
+  await page.click("#sidebar [data-act=cat][data-v='3']");
+  await page.click("#filters [data-act=cat-level][data-v='0']");
+  await page.waitForFunction(() => window.__fake.cats.find(c => c.id === 3).ad_level === 0);
+  await page.waitForFunction(() => document.querySelector("#sidebar [data-act=cat][data-v='3']").textContent.includes("ปิด"));
+  assert((await page.textContent("#filters")).includes("จะไม่ถูกสุ่มขึ้นเว็บ"));
+  await page.click("#sidebar [data-act=cat][data-v='2']");   // หมวดย่อยของแฟชั่น (ปกติ) ไม่มีหมายเหตุ
+  await page.click("#sidebar [data-act=open-categories]");
+  await page.selectOption("#modal [data-cat-row='1'] [data-c=ad_level]", "1");
+  await page.click("#modal [data-cat-row='1'] [data-act=save-cat]");
+  await page.waitForFunction(() => window.__fake.cats.find(c => c.id === 1).ad_level === 1);
+  await page.click("#modal button[data-act=close-modal]");
+  await page.waitForFunction(() => document.querySelector("#filters").textContent.includes("หมวดหลัก"));   // เสื้อคลุมทำตามแฟชั่น
+  await page.click("#filters [data-act=cat-level][data-v='2']");   // หมวดย่อยปกติอยู่แล้ว ไม่เรียกบันทึก
+  await page.click("#sidebar [data-act=cat][data-v='all']");
+  assert.equal(await page.$("#filters [data-act=cat-level]"), null, "ทุกหมวดไม่มีแถบนี้");
+
   // ตั้งค่า AI: เลือกเจ้า วางคีย์ บันทึก เปิดใหม่ไม่เห็นคีย์เต็ม เว้นว่างแล้วบันทึกยังใช้คีย์เดิม
   await page.click("[data-act=open-ai]");
   await page.waitForSelector("#modal [data-ai=api_key]");

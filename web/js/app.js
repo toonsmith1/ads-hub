@@ -8,6 +8,9 @@ const STATUS = {
   paused: { label: "พักไว้", dot: "bg-slate-400", pill: "bg-slate-100 text-slate-600 ring-slate-200" },
   expired: { label: "หมดอายุ", dot: "bg-rose-400", pill: "bg-rose-50 text-rose-700 ring-rose-200" },
 };
+// การแสดงโฆษณาของทั้งหมวด (hub_categories.ad_level) หมวดย่อยทำตามหมวดหลักถ้าหมวดหลักต่ำกว่า
+const AD_LEVELS = [[2, "ปกติ"], [1, "แสดงน้อย"], [0, "ปิด"]];
+const catLevel = (c) => (c && c.ad_level != null ? Number(c.ad_level) : 2);
 const SORTS = [
   ["updated", "แก้ไขล่าสุด"], ["created", "เพิ่มล่าสุด"], ["commission", "ค่าคอมสูงสุด"],
   ["priceAsc", "ราคาต่ำไปสูง"], ["priceDesc", "ราคาสูงไปต่ำ"], ["title", "ชื่อ ก-ฮ"],
@@ -260,7 +263,7 @@ function renderSidebar() {
     const n = catCount(c.id) + kids.reduce((s, k) => s + catCount(k.id), 0);
     const on = String(state.f.cat) === String(c.id);
     return `<button data-act="cat" data-v="${c.id}" class="w-full flex items-center gap-2 h-8 pr-3 rounded-lg text-sm ${on ? "bg-brand-50 text-brand-700 font-semibold" : "text-slate-600 hover:bg-slate-50"}" style="padding-left:${12 + depth * 16}px">
-        <span class="flex-1 text-left truncate">${esc(c.name)}</span><span class="text-xs ${on ? "text-brand-600" : "text-slate-400"}">${fmtNum(n)}</span></button>`
+        <span class="flex-1 text-left truncate">${esc(c.name)}</span>${levelBadge(c)}<span class="text-xs ${on ? "text-brand-600" : "text-slate-400"}">${fmtNum(n)}</span></button>`
       + kids.map(k => catItem(k, depth + 1)).join("");
   };
   const roots = state.cats.filter(c => !c.parent_id || !catById(c.parent_id));
@@ -281,6 +284,41 @@ function renderSidebar() {
     </div>`;
 }
 
+function levelBadge(c) {
+  const lv = catLevel(c);
+  if (lv === 2) return "";
+  return `<span class="shrink-0 px-1.5 rounded text-[10px] font-medium ${lv ? "bg-amber-50 text-amber-700" : "bg-slate-200 text-slate-600"}" title="การแสดงโฆษณาของหมวดนี้">${lv ? "น้อย" : "ปิด"}</span>`;
+}
+
+// เลือกหมวดอยู่: ปรับการแสดงโฆษณาของทั้งหมวดได้ทันที
+function catLevelBar() {
+  const c = /^\d+$/.test(String(state.f.cat)) ? catById(Number(state.f.cat)) : null;
+  if (!c) return "";
+  const lv = catLevel(c);
+  const parent = c.parent_id ? catById(c.parent_id) : null;
+  const note = parent && catLevel(parent) < lv
+    ? `หมวดหลัก "${esc(parent.name)}" ตั้งเป็น "${AD_LEVELS.find(([v]) => v === catLevel(parent))[1]}" หมวดนี้จึงทำตามนั้น`
+    : lv === 0 ? "สินค้าในหมวดนี้จะไม่ถูกสุ่มขึ้นเว็บ (ที่ปักหมุดหรือฝังด้วยรหัสสินค้ายังแสดง)"
+    : lv === 1 ? "สินค้าในหมวดนี้มีโอกาสถูกสุ่มขึ้นเว็บน้อยลง (ราว 1 ใน 5 ของปกติ)" : "";
+  return `<div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+      <span class="text-slate-600">การแสดงโฆษณาของหมวด <b>${esc(c.name)}</b>${c.parent_id ? "" : " และหมวดย่อย"}</span>
+      <div class="inline-flex rounded-lg border border-slate-300 bg-white p-0.5">
+        ${AD_LEVELS.map(([v, l]) => `<button data-act="cat-level" data-id="${c.id}" data-v="${v}" class="h-7 px-3 rounded-md text-sm ${lv === v ? (v === 0 ? "bg-slate-700 text-white" : v === 1 ? "bg-amber-500 text-white" : "bg-emerald-600 text-white") : "text-slate-600 hover:bg-slate-50"}">${l}</button>`).join("")}
+      </div>
+      ${note ? `<span class="text-xs text-slate-400">${note}</span>` : ""}
+    </div>`;
+}
+
+async function setCatLevel(id, level) {
+  const c = catById(id);
+  if (!c || catLevel(c) === level) return;
+  const label = AD_LEVELS.find(([v]) => v === level)[1];
+  if (await guard(() => HubAPI.saveCategory({ ...c, ad_level: level }), `หมวด "${c.name}": ${label}`)) {
+    await loadCats();
+    renderFilters();
+  }
+}
+
 // ---------- แถวตัวกรอง ----------
 function renderFilters() {
   const el = $("#filters");
@@ -288,7 +326,7 @@ function renderFilters() {
   const f = state.f;
   const catOptions = [`<option value="all">ทุกหมวด</option>`, `<option value="none" ${f.cat === "none" ? "selected" : ""}>ยังไม่มีหมวด</option>`]
     .concat(state.cats.map(c => `<option value="${c.id}" ${String(f.cat) === String(c.id) ? "selected" : ""}>${c.parent_id ? "— " : ""}${esc(c.name)}</option>`)).join("");
-  el.innerHTML = `
+  el.innerHTML = `${catLevelBar()}
     <div class="flex flex-wrap items-center gap-2">
       <select data-f="cat" class="${INPUT} lg:hidden">${catOptions}</select>
       <select data-f="status" class="${INPUT} lg:hidden">
@@ -757,8 +795,9 @@ function categoriesModalHtml() {
   const row = (c) => `
     <div class="grid grid-cols-12 gap-2 items-center py-2 border-t border-slate-100" data-cat-row="${c.id || "new"}">
       <input data-c="name" value="${esc(c.name || "")}" placeholder="ชื่อหมวด" class="${INPUT} col-span-3">
-      <select data-c="parent_id" class="${INPUT} col-span-3"><option value="">(หมวดหลัก)</option>${state.cats.filter(p => p.id !== c.id && !p.parent_id).map(p => `<option value="${p.id}" ${c.parent_id === p.id ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
-      <input data-c="keywords" value="${esc((c.keywords || []).join(", "))}" placeholder="คำที่ใช้เดาหมวด คั่นด้วยจุลภาค" class="${INPUT} col-span-4">
+      <select data-c="parent_id" class="${INPUT} col-span-2"><option value="">(หมวดหลัก)</option>${state.cats.filter(p => p.id !== c.id && !p.parent_id).map(p => `<option value="${p.id}" ${c.parent_id === p.id ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
+      <input data-c="keywords" value="${esc((c.keywords || []).join(", "))}" placeholder="คำที่ใช้เดาหมวด คั่นด้วยจุลภาค" class="${INPUT} col-span-3">
+      <select data-c="ad_level" class="${INPUT} col-span-2" title="การแสดงโฆษณาของหมวด">${AD_LEVELS.map(([v, l]) => `<option value="${v}" ${catLevel(c) === v ? "selected" : ""}>${v === 2 ? "แสดงปกติ" : l === "ปิด" ? "ปิดการแสดง" : l}</option>`).join("")}</select>
       <div class="col-span-2 flex justify-end gap-1">
         <button data-act="save-cat" data-id="${c.id || ""}" class="${BTN} h-9">${c.id ? "บันทึก" : "เพิ่ม"}</button>
         ${c.id ? `<button data-act="delete-cat" data-id="${c.id}" class="${BTN_DANGER} h-9 px-2" aria-label="ลบหมวด">ลบ</button>` : ""}
@@ -766,7 +805,8 @@ function categoriesModalHtml() {
     </div>`;
   return `
     <h2 class="text-lg font-semibold">จัดการหมวดหมู่</h2>
-    <p class="mt-1 text-sm text-slate-500">ลบหมวดแล้วสินค้าในหมวดนั้นจะกลายเป็น "ยังไม่มีหมวด" ไม่ถูกลบ</p>
+    <p class="mt-1 text-sm text-slate-500">ลบหมวดแล้วสินค้าในหมวดนั้นจะกลายเป็น "ยังไม่มีหมวด" ไม่ถูกลบ<br>
+      ช่องการแสดง: "แสดงน้อย" ลดโอกาสถูกสุ่มขึ้นเว็บ "ปิดการแสดง" ไม่สุ่มเลย (หมวดย่อยทำตามหมวดหลัก) ตั้งแล้วกดบันทึกของแถวนั้น</p>
     <div class="mt-4 max-h-[60vh] overflow-y-auto pr-1">${state.cats.map(row).join("")}${row({})}</div>
     <div class="mt-5 flex justify-end"><button data-act="close-modal" class="${BTN} h-9">เสร็จ</button></div>`;
 }
@@ -778,6 +818,7 @@ async function saveCat(btn) {
   const cat = {
     id, name: get("name").trim(), parent_id: get("parent_id") ? Number(get("parent_id")) : null,
     keywords: get("keywords").split(",").map(k => k.trim()).filter(Boolean),
+    ad_level: Number(get("ad_level")),
     sort: id ? catById(id)?.sort || 0 : (Math.max(0, ...state.cats.map(c => c.sort || 0)) + 10),
   };
   if (!cat.name) return toast("ใส่ชื่อหมวดก่อน", "error");
@@ -1193,6 +1234,7 @@ async function onClick(e) {
       break;
     case "open-import": openImport(); break;
     case "open-categories": state.modal = "categories"; renderModal(); break;
+    case "cat-level": setCatLevel(Number(el.dataset.id), Number(v)); break;
     case "close-modal": closeModal(); break;
     case "import-legacy": loadLegacy(); break;
     case "run-import": runImport(); break;
