@@ -1,8 +1,9 @@
 // ==========================================
-// ตัวเขียนรีวิวแบบสุ่ม (ป้ายยา) ไม่ใช้ AI ได้ทันที ไม่เสียโทเคน
+// ตัวเขียนรีวิวแบบสุ่ม ไม่ใช้ AI ได้ทันที ไม่เสียโทเคน มีหลายแนว (STYLES) ใช้ชื่อแนวเดียวกับฟังก์ชัน review (AI)
 // ใช้ข้อมูลจริงของสินค้าเท่านั้น (ชื่อ ราคา คะแนน ยอดขาย แบรนด์ ร้าน สเปก รายละเอียด) ไม่อ้างว่าใช้เอง
 // ประโยคเขียนเป็น spintax {ก|ข|ค} ซ้อนกันได้ ถ้าข้อมูลส่วนไหนไม่มี ข้ามบรรทัดนั้น
-//   ReviewWriter.random(product)  → ข้อความรีวิว
+//   ReviewWriter.random(product, style)  → ข้อความรีวิว (style ไม่รู้จัก = ป้ายยา)
+//   ReviewWriter.STYLES               → [[คีย์, ชื่อที่แสดง], ...]
 //   ReviewWriter.spin("{ก|ข}")   → สุ่มหนึ่งแบบ
 // ==========================================
 (function (root) {
@@ -36,26 +37,87 @@
       .slice(0, max);
   }
 
+  const STYLES = [
+    ["payaa", "ป้ายยา"],
+    ["honest", "รีวิวจริงจัง ข้อดี/ควรรู้"],
+    ["caption", "แคปชันสั้นสำหรับโพสต์"],
+    ["story", "เล่าเรื่องการใช้งาน"],
+    ["value", "สายคุ้มค่า"],
+    ["fun", "ภาษาวัยรุ่น ขำๆ"],
+  ];
+
+  // ประโยคของแต่ละแนว: ช่อง {name} {price} ฯลฯ ใส่ข้อมูลจริง ส่วน {ก|ข} คือสุ่มคำ
   const T = {
-    hook: [
-      "{ใครกำลังมองหา|ใครที่ตามหา|สายไหนที่อยากได้} {name} {อยู่|อยู่บ้าง} {ขอป้ายยาตัวนี้เลย|ต้องดูตัวนี้|มาทางนี้เลย} {✨|🔥|💖|👀}",
-      "{วันนี้ขอป้ายยา|ป้ายยาของดีวันนี้|ขอแนะนำไอเทมนี้} {name} {ตัวนี้กำลังมาแรง|ตัวนี้คนพูดถึงเยอะ|ตัวนี้น่าสนใจมาก} {✨|🔥|🛒}",
-      "{เจอของดีมาบอกต่อ|ไอเทมนี้ต้องบอกต่อ|ของมันต้องมีอีกชิ้น} {💡|✨|🔥} {name}",
-    ],
+    payaa: {
+      hook: [
+        "{ใครกำลังมองหา|ใครที่ตามหา|สายไหนที่อยากได้} {name} {อยู่|อยู่บ้าง} {ขอป้ายยาตัวนี้เลย|ต้องดูตัวนี้|มาทางนี้เลย} {✨|🔥|💖|👀}",
+        "{วันนี้ขอป้ายยา|ป้ายยาของดีวันนี้|ขอแนะนำไอเทมนี้} {name} {ตัวนี้กำลังมาแรง|ตัวนี้คนพูดถึงเยอะ|ตัวนี้น่าสนใจมาก} {✨|🔥|🛒}",
+        "{เจอของดีมาบอกต่อ|ไอเทมนี้ต้องบอกต่อ|ของมันต้องมีอีกชิ้น} {💡|✨|🔥} {name}",
+      ],
+      points: "{จุดเด่นที่น่าสนใจ|ไฮไลต์ของตัวนี้|ที่ชอบคือ} 👇",
+      price: [
+        "{ราคาตอนนี้|ราคาล่าสุดที่เห็น|ราคาประมาณ} {price} {ถือว่าคุ้ม|คุ้มเลย|ไม่แรงเลย} {(ราคาเปลี่ยนตามโปร)|(ราคาอาจเปลี่ยนตามโปรโมชั่น)}",
+        "{ได้มาในราคา|ราคาเพียง} {price} {เท่านั้น|} {(เช็กโปรล่าสุดก่อนสั่ง)|(ราคาอาจเปลี่ยนแปลง)}",
+      ],
+      cta: [
+        "{กดดูราคาล่าสุดได้ที่ปุ่มด้านล่าง|เช็กโปรล่าสุดที่ปุ่มสั่งซื้อ|พิกัดอยู่ที่ปุ่มด้านล่างเลย} {👇|⬇️|🛒}",
+        "{ใครสนใจ|ถ้าชอบ|ใครอยากได้} {กดดูรายละเอียดเพิ่มที่ปุ่มด้านล่าง|เช็กราคาและโปรที่ปุ่มด้านล่าง} {👇|🛒}",
+      ],
+    },
+    honest: {
+      hook: [
+        "{สรุปข้อมูล|รีวิวข้อมูล|ส่องรายละเอียด} {name} {แบบตรงไปตรงมา|ให้ครบในโพสต์เดียว|ก่อนตัดสินใจซื้อ}",
+        "{name}: {ดูอะไรบ้างก่อนซื้อ|มีอะไรน่าสนใจ และต้องดูอะไรก่อนซื้อ|เหมาะกับใคร คุ้มไหม}",
+      ],
+      points: "{ข้อดีจากข้อมูลสินค้า|จุดที่น่าสนใจ|สิ่งที่ได้}",
+      check: "{ควรรู้ก่อนซื้อ|ก่อนกดสั่งลองเช็ก|ข้อควรดูก่อนซื้อ}\n• {เช็กขนาด/สเปกให้ตรงกับที่ใช้|ดูไซซ์และสเปกให้ตรงความต้องการ}\n• {อ่านรีวิวล่าสุดของผู้ซื้อ|ดูรีวิวและรูปจากคนซื้อจริง}{ในหน้าร้าน|}\n• {ดูเงื่อนไขการคืนสินค้าและการรับประกัน|เช็กการรับประกันและการคืนสินค้า}",
+      price: ["{ราคาที่เห็นล่าสุด|ราคาตอนนี้} {price} {(อาจเปลี่ยนตามโปรโมชั่น)|(ราคาเปลี่ยนได้ตามโปร)}"],
+      cta: ["{รายละเอียดและราคาล่าสุดดูได้ที่ปุ่มด้านล่าง|เช็กข้อมูลเพิ่มเติมที่ปุ่มด้านล่าง}"],
+    },
+    caption: {
+      hook: [
+        "{✨|🔥|💥} {name} {มาแล้ว|ของมันต้องมี|ตัวนี้น่าโดน}",
+        "{ป้ายยาสั้นๆ|ไอเทมวันนี้|ของดีบอกต่อ} {👉|✨} {name}",
+      ],
+      price: ["{💸|🏷️} {price} {(ราคาเปลี่ยนตามโปร)|(เช็กโปรก่อนสั่ง)}"],
+      cta: ["{🛒 พิกัดกดที่ปุ่มด้านล่าง|👇 กดดูราคาล่าสุด|👇 พิกัดอยู่ด้านล่าง}"],
+    },
+    story: {
+      hook: [
+        "{ลองนึกภาพ|เคยไหม} {วันที่ต้องการของที่ช่วยให้ชีวิตง่ายขึ้น|วันยุ่งๆ ที่อยากได้ตัวช่วยดีๆ|เวลามองหาของใช้ที่ตอบโจทย์จริงๆ} {name} {คือหนึ่งตัวเลือกที่น่าสนใจ|อาจเป็นคำตอบ|น่าจะช่วยได้}",
+        "{สำหรับใครที่กำลังหา|ถ้าคุณกำลังหา} {ของใช้|ไอเทม}ที่{ตอบโจทย์|ใช้งานได้จริง} {name} {มีรายละเอียดที่น่าสนใจหลายอย่าง|เป็นตัวที่ควรดูไว้}",
+      ],
+      points: "{ลองดูว่ามีอะไรบ้าง|สิ่งที่ตัวนี้มีให้|รายละเอียดที่ทำให้น่าสนใจ}",
+      price: ["{ทั้งหมดนี้ในราคา|ราคาตอนนี้อยู่ที่} {price} {(อาจเปลี่ยนตามโปร)|(เช็กโปรล่าสุดอีกที)}"],
+      cta: ["{ถ้าตรงกับที่มองหา|ถ้าใช่สำหรับคุณ} {กดดูรายละเอียดที่ปุ่มด้านล่างได้เลย|ดูต่อที่ปุ่มด้านล่าง} {👇|🛒}"],
+    },
+    value: {
+      hook: [
+        "{สายคุ้มต้องดู|งบน้อยแต่อยากได้ของดี|คุ้มไหม? มาดูกัน} {💰|🧾|✅} {name}",
+        "{ส่องความคุ้มค่า|เช็กความคุ้ม} {name} {ราคานี้ได้อะไรบ้าง|จ่ายเท่านี้ได้อะไร}",
+      ],
+      points: "{ได้อะไรบ้าง|สิ่งที่ได้ในราคานี้|ของที่ได้}",
+      price: [
+        "{ราคา|ราคาตอนนี้} {price} {เทียบกับสิ่งที่ได้ถือว่าน่าสนใจ|ถือว่าน่าลองสำหรับสายคุ้ม} {(ราคาเปลี่ยนตามโปร เช็กก่อนสั่ง)|(เช็กโค้ดส่วนลดและโปรก่อนสั่ง)}",
+      ],
+      cta: ["{เช็กราคาและโปรล่าสุดที่ปุ่มด้านล่าง|เทียบราคาล่าสุดได้ที่ปุ่มด้านล่าง} {👇|🛒}"],
+    },
+    fun: {
+      hook: [
+        "{แม่ๆ|เพื่อนๆ|ทุกคนนน} {ตัวนี้มันต้องมีแล้วมั้ย|อย่าหาว่าไม่เตือน|เห็นแล้วต้องแชร์} {😂|🤭|🔥} {name}",
+        "{หยุดเลื่อนก่อน|เดี๋ยวนะ|ขอแปะไว้ตรงนี้} {✋|👀} {name} {ตัวตึงประจำวัน|ของมันต้องมีจริงอะไรจริง|น่าโดนมาก}",
+      ],
+      points: "{ดีงามตรงไหน|เด็ดตรงนี้|มีอะไรบ้าง} {👇|🫶}",
+      price: ["{ราคาแค่|ค่าตัว} {price} {ใจบางเลย|ไหวอยู่|กระเป๋าตังค์ยังยิ้มได้} {😆|🤑} {(ราคาเปลี่ยนตามโปรน้า)|(เช็กโปรก่อนน้า)}"],
+      cta: ["{พิกัดกดปุ่มด้านล่างเลยจ้า|จิ้มปุ่มด้านล่างไปส่องต่อ|ไปตำที่ปุ่มด้านล่าง} {👇|🛒|💨}"],
+    },
+  };
+  const PROOF = {
     rating: "{คะแนนรีวิว|เรตติ้งจากคนซื้อ|คะแนนเฉลี่ย} ⭐ {rating}/5{count}",
     count: " {จาก|จากผู้ซื้อ} {n} {รีวิว|คน}",
     sold: "{ยอดขายตอนนี้|ตอนนี้} {sold}",
     brand: "{แบรนด์|ของแบรนด์} {brand}",
     shop: "{ส่งจากร้าน|ร้าน} {shop}",
-    points: "{จุดเด่นที่น่าสนใจ|ไฮไลต์ของตัวนี้|ที่ชอบคือ} 👇",
-    price: [
-      "{ราคาตอนนี้|ราคาล่าสุดที่เห็น|ราคาประมาณ} {price} {ถือว่าคุ้ม|คุ้มเลย|ไม่แรงเลย} {(ราคาเปลี่ยนตามโปร)|(ราคาอาจเปลี่ยนตามโปรโมชั่น)}",
-      "{ได้มาในราคา|ราคาเพียง} {price} {เท่านั้น|} {(เช็กโปรล่าสุดก่อนสั่ง)|(ราคาอาจเปลี่ยนแปลง)}",
-    ],
-    cta: [
-      "{กดดูราคาล่าสุดได้ที่ปุ่มด้านล่าง|เช็กโปรล่าสุดที่ปุ่มสั่งซื้อ|พิกัดอยู่ที่ปุ่มด้านล่างเลย} {👇|⬇️|🛒}",
-      "{ใครสนใจ|ถ้าชอบ|ใครอยากได้} {กดดูรายละเอียดเพิ่มที่ปุ่มด้านล่าง|เช็กราคาและโปรที่ปุ่มด้านล่าง} {👇|🛒}",
-    ],
   };
 
   const pick = (arr, rand) => arr[Math.floor(rand() * arr.length)];
@@ -64,33 +126,61 @@
     .replace(/\u0001(\w+)\u0002/g, (m, k) => (k in vars ? vars[k] : ""));
 
   // p: แถวสินค้า (title, price_text, price, sold_text, shop, description, details)
-  function random(p, rand = Math.random) {
+  function random(p, style, rand) {
+    if (typeof style === "function") { rand = style; style = ""; }   // แบบเดิม random(p, rand)
+    rand = rand || Math.random;
+    const key = T[style] ? style : "payaa";
+    const t = T[key];
     const d = (p && p.details) || {};
     const price = p.price_text || (p.price != null && p.price !== "" ? `฿${Number(p.price).toLocaleString("th-TH")}` : "");
     const rating = Number(d.rating);
+    const name = shortTitle(p.title);
     const lines = [];
-    lines.push(fill(pick(T.hook, rand), { name: shortTitle(p.title) }, rand));
+    lines.push(fill(pick(t.hook, rand), { name }, rand));
 
     const proof = [];
     if (rating > 0) {
-      const count = Number(d.rating_count) > 0 ? fill(T.count, { n: Number(d.rating_count).toLocaleString("th-TH") }, rand) : "";
-      proof.push(fill(T.rating, { rating: rating.toFixed(1), count }, rand));
+      const count = Number(d.rating_count) > 0 ? fill(PROOF.count, { n: Number(d.rating_count).toLocaleString("th-TH") }, rand) : "";
+      proof.push(fill(PROOF.rating, { rating: rating.toFixed(1), count }, rand));
     }
-    if (p.sold_text) proof.push(/ขาย|sold/i.test(p.sold_text) ? p.sold_text : fill(T.sold, { sold: p.sold_text }, rand));
-    if (d.brand) proof.push(fill(T.brand, { brand: d.brand }, rand));
-    if (p.shop && p.shop !== d.brand) proof.push(fill(T.shop, { shop: p.shop }, rand));
-    if (proof.length) lines.push(proof.join(" · "));
+    if (p.sold_text) proof.push(/ขาย|sold/i.test(p.sold_text) ? p.sold_text : fill(PROOF.sold, { sold: p.sold_text }, rand));
+    if (key !== "caption") {
+      if (d.brand) proof.push(fill(PROOF.brand, { brand: d.brand }, rand));
+      if (p.shop && p.shop !== d.brand) proof.push(fill(PROOF.shop, { shop: p.shop }, rand));
+    }
 
     const specs = Object.entries(d.specs && typeof d.specs === "object" ? d.specs : {})
       .filter(([k, v]) => String(v).trim() && String(v).length <= 60 && !/คลัง|stock|หมวดหมู่|category/i.test(k))
       .slice(0, 4).map(([k, v]) => `${k}: ${v}`);
-    const points = [...highlights(p.description, 4 - Math.min(specs.length, 2)), ...specs].slice(0, 5);
-    if (points.length) lines.push(`${spin(T.points, rand)}\n${points.map(x => `• ${x}`).join("\n")}`);
+    const max = key === "caption" ? 2 : 5;
+    const points = [...highlights(p.description, 4 - Math.min(specs.length, 2)), ...specs].slice(0, max);
+    const priceLine = price ? fill(pick(t.price, rand), { price }, rand).replace(/\s+/g, " ").trim() : "";
 
-    if (price) lines.push(fill(pick(T.price, rand), { price }, rand).replace(/\s+/g, " ").trim());
-    lines.push(spin(pick(T.cta, rand), rand));
-    return lines.map(l => l.replace(/[ \t]+/g, " ").replace(/ +$/gm, "").trim()).join("\n\n");
+    if (key === "caption") {
+      // สั้น 3-5 บรรทัด ไม่เว้นย่อหน้า ปิดด้วยแฮชแท็กจากหมวด/แบรนด์
+      const short = [lines[0], ...points.map(x => `✔️ ${x}`)];
+      if (proof.length) short.push(proof.slice(0, 2).join(" · "));
+      if (priceLine) short.push(priceLine);
+      short.push(spin(pick(t.cta, rand), rand));
+      const tags = ["#ป้ายยา", "#ของดีบอกต่อ", d.brand ? `#${String(d.brand).replace(/\s+/g, "")}` : "", "#shopee"].filter(Boolean);
+      return clean(short.join("\n") + "\n" + tags.join(" "));
+    }
+
+    if (key === "value") {
+      if (priceLine) lines.push(priceLine);
+      if (proof.length) lines.push(proof.join(" · "));
+      if (points.length) lines.push(`${spin(t.points, rand)}\n${points.map(x => `• ${x}`).join("\n")}`);
+    } else {
+      if (proof.length) lines.push(proof.join(" · "));
+      if (points.length) lines.push(`${spin(t.points, rand)}\n${points.map(x => `${key === "honest" ? "✓" : "•"} ${x}`).join("\n")}`);
+      if (key === "honest") lines.push(spin(t.check, rand));
+      if (priceLine) lines.push(priceLine);
+    }
+    lines.push(spin(pick(t.cta, rand), rand));
+    return clean(lines.join("\n\n"));
   }
 
-  root.ReviewWriter = { spin, random, shortTitle };
+  const clean = (text) => text.split("\n").map(l => l.replace(/[ \t]+/g, " ").trim()).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+
+  root.ReviewWriter = { spin, random, shortTitle, STYLES };
 })(typeof window !== "undefined" ? window : globalThis);

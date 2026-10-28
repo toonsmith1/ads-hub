@@ -123,8 +123,8 @@
     },
     uploadImage: () => delay(img("uploaded")),
     // window.__fake.ai: "ok" = ได้ร่างจาก AI, อย่างอื่น = เหตุผลที่ใช้ไม่ได้ (no_key, quota)
-    writeReview(id) {
-      window.__fake.calls.push({ writeReview: id });
+    writeReview(id, style) {
+      window.__fake.calls.push({ writeReview: id, style });
       const mode = window.__fake.ai || "no_key";
       return delay(mode === "ok" ? { text: `รีวิว AI ของ #${id}`, model: "fake-model" } : { error: "โทเคนหมด", reason: mode });
     },
