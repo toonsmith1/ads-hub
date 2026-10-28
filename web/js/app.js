@@ -138,6 +138,7 @@ function renderShell() {
           <input id="search" type="search" placeholder="ค้นหาชื่อสินค้า ร้าน หรือโน้ต  ( / )" class="${INPUT} w-full pl-9 h-10" autocomplete="off">
         </div>
         <button data-act="open-sites" class="${BTN} h-10 shrink-0">เว็บที่แสดงโฆษณา</button>
+        <button data-act="new-product" class="${BTN} h-10 shrink-0">+ เพิ่มสินค้าเอง</button>
         <button data-act="open-import" class="${BTN_PRIMARY} h-10 shrink-0">+ นำเข้าสินค้า</button>
         <button data-act="signout" class="${BTN} h-10 shrink-0 hidden md:inline-flex">ออกจากระบบ</button>
       </div>
@@ -416,7 +417,8 @@ async function bulkUpdate(patch, label) {
 
 // ---------- แผงแก้ไขสินค้า ----------
 function openDrawer(id) {
-  const p = id === "new" ? { title: "", link: "", status: "pending", weight: 1, tags: [] } : state.rows.find(r => r.id === id);
+  // เพิ่มเอง (เช่นลิงก์จาก AccessTrade): แอดมินเลือกมาแล้ว จึงเริ่มเป็น "กำลังแสดง"
+  const p = id === "new" ? { title: "", link: "", status: "active", weight: 1, tags: [] } : state.rows.find(r => r.id === id);
   if (!p) return;
   state.drawer = { ...p, tags: [...(p.tags || [])] };
   renderDrawer();
@@ -955,6 +957,7 @@ async function onClick(e) {
   if (["select", "select-page", "upload", "import-file"].includes(act)) return;   // จัดการใน onChange
   switch (act) {
     case "edit": openDrawer(Number(el.dataset.id)); break;
+    case "new-product": openDrawer("new"); break;
     case "close-drawer": closeDrawer(); break;
     case "save-drawer": saveDrawer(); break;
     case "delete-one": {

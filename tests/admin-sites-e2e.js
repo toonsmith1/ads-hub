@@ -76,7 +76,22 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", "
   assert.deepEqual(saved.details.removed_images, ["https://img.example/g2.png"]);
   assert.equal(saved.description, "ผ้าทวิตหนา ใส่สบาย");
 
-  // ร่างรีวิว: สุ่มแบบป้ายยาจากข้อมูลจริง / AI / AI ใช้ไม่ได้ → สุ่มแทน แล้วบันทึก
+  // เพิ่มสินค้าเอง (ลิงก์ AccessTrade): เริ่มเป็น "กำลังแสดง" แหล่งเป็น accesstrade
+  await page.waitForTimeout(300);
+  await page.click("[data-act=new-product]");
+  assert.equal(await page.textContent("#drawer h2"), "เพิ่มสินค้า");
+  assert.equal(await page.inputValue("#drawer [data-d=status]"), "active");
+  await page.fill("#drawer [data-d=title]", "หูฟังไร้สาย จาก AccessTrade");
+  await page.fill("#drawer [data-d=link]", "https://atth.me/abc123");
+  await page.fill("#drawer [data-d=image_url]", "https://img.example/at.png");
+  await page.click("#drawer [data-act=save-drawer]");
+  await page.waitForFunction(() => window.__fake.products.some(p => p.link === "https://atth.me/abc123"));
+  const manual = await page.evaluate(() => window.__fake.products.find(p => p.link === "https://atth.me/abc123"));
+  assert.equal(manual.source, "accesstrade");
+  assert.equal(manual.status, "active");
+  assert.equal(manual.title, "หูฟังไร้สาย จาก AccessTrade");
+
+    // ร่างรีวิว: สุ่มแบบป้ายยาจากข้อมูลจริง / AI / AI ใช้ไม่ได้ → สุ่มแทน แล้วบันทึก
   await page.waitForTimeout(300);   // รอรายการโหลดใหม่หลังบันทึก
   await page.click("article[data-id='1']");
   await page.click("#drawer [data-act=spin-review]");
