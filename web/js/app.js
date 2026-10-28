@@ -29,9 +29,10 @@ const state = {
   selected: new Set(),
   view: localGet("hub.view") || "grid",
   drawer: null,   // สินค้าที่กำลังแก้ (สำเนา)
-  modal: null,    // "import" | "categories" | "sites" | "ai" | "stats"
+  modal: null,    // "import" | "categories" | "sites" | "ai"
   ai: null,       // ฟอร์มตั้งค่า AI (โหลดตอนเปิดหน้าต่าง)
-  dash: null,     // แดชบอร์ดสถิติ {days, data}
+  route: "products",   // หน้าที่เปิดอยู่: products | stats (#stats)
+  dash: null,     // หน้าสถิติ {days, data}
   importer: null,
   stats: {},      // { [product_id]: {views, clicks} } ของสินค้าในหน้านี้ ย้อนหลัง STATS_DAYS วัน
   sites: null,    // เว็บที่แสดงโฆษณา พร้อม hub_placements (โหลดตอนเปิดหน้าต่าง)
@@ -135,11 +136,11 @@ function renderShell() {
     <header class="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200">
       <div class="h-16 px-4 lg:px-6 flex items-center gap-4">
         <div class="flex items-center gap-2 shrink-0">${logo()}<span class="font-semibold hidden sm:inline">Ad Hub</span></div>
+        <nav id="nav" class="flex gap-1 p-1 rounded-lg bg-slate-100 shrink-0"></nav>
         <div class="relative flex-1 max-w-2xl">
           <svg class="absolute left-3 top-2.5 w-4 h-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 3.4 9.83l3.64 3.63a.75.75 0 1 0 1.06-1.06l-3.63-3.64A5.5 5.5 0 0 0 9 3.5ZM5 9a4 4 0 1 1 8 0 4 4 0 0 1-8 0Z" clip-rule="evenodd"/></svg>
           <input id="search" type="search" placeholder="ค้นหาชื่อสินค้า ร้าน หรือโน้ต  ( / )" class="${INPUT} w-full pl-9 h-10" autocomplete="off">
         </div>
-        <button data-act="open-stats" class="${BTN} h-10 shrink-0">สถิติ</button>
         <button data-act="open-sites" class="${BTN} h-10 shrink-0">เว็บที่แสดงโฆษณา</button>
         <button data-act="open-ai" class="${BTN} h-10 shrink-0">ตั้งค่า AI</button>
         <button data-act="new-product" class="${BTN} h-10 shrink-0">+ เพิ่มสินค้าเอง</button>
@@ -147,20 +148,22 @@ function renderShell() {
         <button data-act="signout" class="${BTN} h-10 shrink-0 hidden md:inline-flex">ออกจากระบบ</button>
       </div>
     </header>
-    <div class="flex">
+    <div id="statsPage" hidden><div id="statsBody" class="px-4 lg:px-6 py-5 max-w-6xl mx-auto"></div></div>
+    <div id="productsPage"><div class="flex">
       <aside id="sidebar" class="hidden lg:block w-64 shrink-0 border-r border-slate-200 bg-white min-h-[calc(100vh-4rem)] sticky top-16 self-start max-h-[calc(100vh-4rem)] overflow-y-auto"></aside>
       <main class="flex-1 min-w-0 px-4 lg:px-6 py-5">
         <div id="filters"></div>
         <div id="results" class="mt-4"></div>
       </main>
-    </div>
+    </div></div>
     <div id="bulkbar"></div>
     <div id="drawer"></div>
     <div id="modal"></div>`;
 
   const search = $("#search");
   const onSearch = debounce(() => { state.f.q = search.value; state.page = 1; refresh(); }, 250);
-  search.oninput = onSearch;
+  search.oninput = () => { if (state.route !== "products") location.hash = ""; onSearch(); };
+  window.onhashchange = applyRoute;
   document.addEventListener("keydown", (e) => {
     if (e.key === "/" && !/input|textarea|select/i.test(document.activeElement?.tagName || "")) { e.preventDefault(); search.focus(); }
     if (e.key === "Escape") { if (state.modal) closeModal(); else if (state.drawer) closeDrawer(); }
@@ -168,6 +171,18 @@ function renderShell() {
   $("#app").onclick = onClick;
   $("#app").onchange = onChange;
   renderFilters();
+  applyRoute();
+}
+
+// ---------- หน้า: สินค้า (ค่าเริ่มต้น) / สถิติ (#stats) ----------
+function applyRoute() {
+  state.route = location.hash === "#stats" ? "stats" : "products";
+  $("#nav").innerHTML = [["products", "#", "สินค้า"], ["stats", "#stats", "สถิติ"]].map(([k, href, l]) =>
+    `<a href="${href}" class="h-8 px-3 inline-flex items-center rounded-md text-sm whitespace-nowrap ${k === state.route ? "bg-white shadow-sm font-semibold text-slate-900" : "text-slate-500 hover:text-slate-800"}">${l}</a>`).join("");
+  $("#productsPage").hidden = state.route !== "products";
+  $("#statsPage").hidden = state.route !== "stats";
+  renderBulkbar();
+  if (state.route === "stats") { closeDrawer(); loadDash(); }
 }
 
 // ---------- โหลดข้อมูล ----------
@@ -393,7 +408,7 @@ function renderBulkbar() {
   const el = $("#bulkbar");
   if (!el) return;
   const n = state.selected.size;
-  if (!n) { el.innerHTML = ""; return; }
+  if (!n || state.route === "stats") { el.innerHTML = ""; return; }
   el.innerHTML = `
     <div class="fixed bottom-20 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-4xl">
       <div class="flex flex-wrap items-center gap-2 px-4 py-3 rounded-2xl bg-slate-900 text-white shadow-2xl">
@@ -626,7 +641,6 @@ function closeModal() {
   state.modal = null;
   state.importer = null;
   state.ai = null;
-  state.dash = null;
   renderModal();
 }
 
@@ -789,29 +803,34 @@ function renderModal() {
   if (!el) return;
   if (!state.modal) { el.innerHTML = ""; return; }
   const inner = state.modal === "import" ? importModalHtml() : state.modal === "sites" ? sitesModalHtml()
-    : state.modal === "ai" ? aiModalHtml() : state.modal === "stats" ? statsModalHtml() : categoriesModalHtml();
+    : state.modal === "ai" ? aiModalHtml() : categoriesModalHtml();
   el.innerHTML = `
     <div class="fixed inset-0 z-[60] grid place-items-center p-4">
       <div data-act="close-modal" class="absolute inset-0 bg-slate-900/40"></div>
-      <div class="relative w-full ${{ import: "max-w-3xl", ai: "max-w-xl", stats: "max-w-5xl" }[state.modal] || "max-w-4xl"} max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl p-6">${inner}</div>
+      <div class="relative w-full ${{ import: "max-w-3xl", ai: "max-w-xl" }[state.modal] || "max-w-4xl"} max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl p-6">${inner}</div>
     </div>`;
 }
 
-// ---------- แดชบอร์ดสถิติ ----------
+// ---------- หน้าสถิติ ----------
 const DASH_RANGES = [[7, "7 วัน"], [30, "30 วัน"], [90, "90 วัน"], [365, "1 ปี"], [0, "ทั้งหมด"]];
 const ctr = (v, c) => (v ? `${(c / v * 100).toLocaleString("th-TH", { maximumFractionDigits: 1 })}%` : "-");
 
-async function openStats(days) {
+// เปิดหน้าทุกครั้งโหลดใหม่ (แสดงของเดิมไว้ระหว่างรอ) days ไม่ส่ง = ช่วงที่เลือกไว้ครั้งก่อน
+async function loadDash(days) {
   if (days === undefined) days = Number(localGet("hub.dashDays") ?? 30);
   if (!DASH_RANGES.some(([d]) => d === days)) days = 30;
   localSet("hub.dashDays", String(days));
-  state.modal = "stats";
-  state.dash = { days, data: state.dash?.days === days ? state.dash.data : null };
-  renderModal();
+  state.dash = { days, data: state.dash?.days === days ? state.dash.data : null, loading: true };
+  renderStats();
   const data = await guard(() => HubAPI.dashboard(days));
-  if (state.modal !== "stats" || state.dash?.days !== days) return;
-  state.dash.data = data || { totals: { views: 0, clicks: 0, products: 0 }, series: [], top: [], placements: [] };
-  renderModal();
+  if (state.dash?.days !== days) return;
+  state.dash = { days, data: data || { totals: { views: 0, clicks: 0, products: 0 }, series: [], top: [], placements: [] }, loading: false };
+  renderStats();
+}
+
+function renderStats() {
+  const el = $("#statsBody");
+  if (el && state.dash) el.innerHTML = statsPageHtml();
 }
 
 function trend(now, before) {
@@ -843,16 +862,19 @@ function barChart(series, key, color, unit) {
     </div>`;
 }
 
-function statsModalHtml() {
-  const { days, data: d } = state.dash;
+function statsPageHtml() {
+  const { days, data: d, loading } = state.dash;
   const tabs = DASH_RANGES.map(([v, l]) => `<button data-act="stats-range" data-v="${v}" class="h-8 px-3 rounded-md text-sm whitespace-nowrap ${v === days ? "bg-white shadow-sm font-semibold text-slate-900" : "text-slate-500 hover:text-slate-800"}">${l}</button>`).join("");
   const head = `<div class="flex flex-wrap items-center justify-between gap-3">
-      <h2 class="text-lg font-semibold">สถิติการแสดงและคลิก</h2>
-      <div class="flex gap-1 p-1 rounded-lg bg-slate-100 max-w-full overflow-x-auto">${tabs}</div>
+      <h1 class="text-xl font-semibold">สถิติการแสดงและคลิก</h1>
+      <div class="flex items-center gap-2 max-w-full">
+        <button data-act="stats-reload" class="${BTN} h-9 shrink-0" ${loading ? "disabled" : ""}>${loading ? "กำลังโหลด…" : "โหลดใหม่"}</button>
+        <div class="flex gap-1 p-1 rounded-lg bg-slate-100 overflow-x-auto">${tabs}</div>
+      </div>
     </div>`;
   if (!d) return `${head}<div class="py-16 text-center text-sm text-slate-400">กำลังโหลด…</div>`;
   const t = d.totals, p = d.prev;
-  const tile = (label, value, sub) => `<div class="rounded-xl border border-slate-200 p-4">
+  const tile = (label, value, sub) => `<div class="rounded-xl border border-slate-200 bg-white p-4">
       <div class="text-xs text-slate-500">${label}</div>
       <div class="mt-1 text-2xl font-semibold tabular-nums">${value}</div>
       <div class="mt-1 text-xs min-h-[1rem]">${sub}</div></div>`;
@@ -873,7 +895,7 @@ function statsModalHtml() {
       <td class="py-2 px-3 text-slate-500">${esc(r.placement || "-")}</td>
       <td class="${num}">${fmtNum(r.views)}</td><td class="${num} font-semibold">${fmtNum(r.clicks)}</td><td class="${num} text-slate-500">${ctr(r.views, r.clicks)}</td>
     </tr>`).join("");
-  const table = (cols, rows) => `<div class="mt-2 overflow-x-auto rounded-xl border border-slate-200"><table class="w-full text-sm">
+  const table = (cols, rows) => `<div class="mt-2 overflow-x-auto rounded-xl border border-slate-200 bg-white"><table class="w-full text-sm">
       <thead class="bg-slate-50 text-slate-500 text-xs"><tr>${cols}</tr></thead><tbody>${rows}</tbody></table></div>`;
   const nums = `<th class="${th} text-right">แสดง</th><th class="${th} text-right">คลิก</th><th class="${th} text-right">อัตราคลิก</th>`;
   return `${head}
@@ -884,16 +906,15 @@ function statsModalHtml() {
       ${tile("อัตราคลิก (CTR)", ctr(t.views, t.clicks), `<span class="text-slate-400">คลิก ÷ การแสดง</span>`)}
       ${tile("สินค้าที่มีคนเห็น/คลิก", fmtNum(t.products), "")}
     </div>
-    ${empty ? `<div class="mt-6 rounded-xl border border-dashed border-slate-300 py-10 text-center text-sm text-slate-500">ยังไม่มีคนเห็นหรือกดโฆษณาในช่วงนี้<br><span class="text-xs text-slate-400">ยอดจะขึ้นเมื่อมีคนเปิดหน้าเว็บที่ฝังโค้ด หรือกดลิงก์ /go/</span></div>` : `
+    ${empty ? `<div class="mt-6 rounded-xl border border-dashed border-slate-300 bg-white py-10 text-center text-sm text-slate-500">ยังไม่มีคนเห็นหรือกดโฆษณาในช่วงนี้<br><span class="text-xs text-slate-400">ยอดจะขึ้นเมื่อมีคนเปิดหน้าเว็บที่ฝังโค้ด หรือกดลิงก์ /go/</span></div>` : `
     <div class="mt-6 grid md:grid-cols-2 gap-6">
-      <div><div class="text-sm font-medium mb-6">คลิก${d.unit === "month" ? "รายเดือน" : "รายวัน"}</div>${barChart(d.series, "clicks", "#3b6ef6", d.unit)}</div>
-      <div><div class="text-sm font-medium mb-6">การแสดง${d.unit === "month" ? "รายเดือน" : "รายวัน"}</div>${barChart(d.series, "views", "#94a3b8", d.unit)}</div>
+      <div class="rounded-xl border border-slate-200 bg-white p-4"><div class="text-sm font-medium mb-6">คลิก${d.unit === "month" ? "รายเดือน" : "รายวัน"}</div>${barChart(d.series, "clicks", "#3b6ef6", d.unit)}</div>
+      <div class="rounded-xl border border-slate-200 bg-white p-4"><div class="text-sm font-medium mb-6">การแสดง${d.unit === "month" ? "รายเดือน" : "รายวัน"}</div>${barChart(d.series, "views", "#94a3b8", d.unit)}</div>
     </div>
     <h3 class="mt-6 text-sm font-semibold">สินค้าที่คลิกมากที่สุด</h3>
     ${table(`<th class="${th} text-left w-8">#</th><th class="${th} text-left">สินค้า</th>${nums}`, topRows)}
     <h3 class="mt-6 text-sm font-semibold">แยกตามเว็บและจุดที่วาง</h3>
-    ${table(`<th class="${th} text-left">เว็บ</th><th class="${th} text-left">จุดที่วาง</th>${nums}`, plRows)}`}
-    <div class="mt-5 flex justify-end"><button data-act="close-modal" class="${BTN} h-9">ปิด</button></div>`;
+    ${table(`<th class="${th} text-left">เว็บ</th><th class="${th} text-left">จุดที่วาง</th>${nums}`, plRows)}`}`;
 }
 
 // ---------- ตั้งค่า AI ----------
@@ -910,7 +931,6 @@ const AI_PRESETS = {
 async function openAi() {
   state.modal = "ai";
   state.ai = null;
-  state.dash = null;
   renderModal();
   const s = await guard(() => HubAPI.aiSettings());
   if (state.modal !== "ai") return;
@@ -1180,8 +1200,8 @@ async function onClick(e) {
     case "delete-cat": deleteCat(Number(el.dataset.id)); break;
     case "open-sites": openSites(); break;
     case "open-ai": openAi(); break;
-    case "open-stats": openStats(); break;
-    case "stats-range": openStats(Number(v)); break;
+    case "stats-range": loadDash(Number(v)); break;
+    case "stats-reload": loadDash(state.dash?.days); break;
     case "ai-save": saveAi(false); break;
     case "ai-clear": saveAi(true); break;
     case "save-site": saveSite(el); break;

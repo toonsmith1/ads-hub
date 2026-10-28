@@ -91,21 +91,27 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", "
   assert.equal(manual.status, "active");
   assert.equal(manual.title, "หูฟังไร้สาย จาก AccessTrade");
 
-  // แดชบอร์ดสถิติ: ยอดรวม กราฟ สินค้ายอดนิยม แยกตามเว็บ เปลี่ยนช่วงได้ และจำช่วงที่เลือก
-  await page.click("[data-act=open-stats]");
-  await page.waitForSelector("#modal svg");
-  const dash = await page.textContent("#modal");
+  // หน้าสถิติ (#stats): ยอดรวม กราฟ สินค้ายอดนิยม แยกตามเว็บ เปลี่ยนช่วงได้ จำช่วงที่เลือก แล้วกลับหน้าสินค้า
+  await page.click("#nav a[href='#stats']");
+  await page.waitForSelector("#statsPage svg");
+  assert.equal(await page.evaluate(() => location.hash), "#stats");
+  assert(await page.isHidden("#productsPage"));
+  const dash = await page.textContent("#statsPage");
   assert(dash.includes("สินค้าที่คลิกมากที่สุด") && dash.includes("ย้ายราชการ") && dash.includes("ไม่ระบุเว็บ"), dash);
-  assert.equal(await page.evaluate(() => document.querySelectorAll("#modal svg")[0].querySelectorAll("rect").length), 30);
-  await page.click("#modal [data-act=stats-range][data-v='0']");
-  await page.waitForFunction(() => document.querySelectorAll("#modal svg")[0]?.querySelectorAll("rect").length === 14);
-  assert(!(await page.textContent("#modal")).includes("จากช่วงก่อน"), "ทั้งหมดไม่มีช่วงก่อนให้เทียบ");
+  assert.equal(await page.evaluate(() => document.querySelectorAll("#statsPage svg")[0].querySelectorAll("rect").length), 30);
+  await page.click("#statsPage [data-act=stats-range][data-v='0']");
+  await page.waitForFunction(() => document.querySelectorAll("#statsPage svg")[0]?.querySelectorAll("rect").length === 14);
+  assert(!(await page.textContent("#statsPage")).includes("จากช่วงก่อน"), "ทั้งหมดไม่มีช่วงก่อนให้เทียบ");
   if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT, fullPage: true });
-  await page.click("#modal button[data-act=close-modal]");
-  await page.click("[data-act=open-stats]");
-  await page.waitForSelector("#modal svg");
-  assert.deepEqual((await page.evaluate(() => window.__fake.calls.filter(c => "dashboard" in c))).map(c => c.dashboard), [30, 0, 0]);
-  await page.click("#modal button[data-act=close-modal]");
+  await page.goBack();   // กลับหน้าสินค้าด้วยปุ่มย้อนกลับของเบราว์เซอร์
+  await page.waitForSelector("#productsPage:not([hidden])");
+  assert(await page.isHidden("#statsPage"));
+  await page.goto(base + "#stats");   // เปิดลิงก์หน้าสถิติตรงๆ ได้ และจำช่วงที่เลือกไว้
+  await page.waitForSelector("#statsPage svg");
+  const dashCalls = (await page.evaluate(() => window.__fake.calls.filter(c => "dashboard" in c))).map(c => c.dashboard);
+  assert.deepEqual(dashCalls, [30, 0, 0], JSON.stringify(dashCalls));
+  await page.click("#nav a[href='#']");
+  await page.waitForSelector("article[data-act=edit]");
 
   // ตั้งค่า AI: เลือกเจ้า วางคีย์ บันทึก เปิดใหม่ไม่เห็นคีย์เต็ม เว้นว่างแล้วบันทึกยังใช้คีย์เดิม
   await page.click("[data-act=open-ai]");
