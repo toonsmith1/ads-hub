@@ -514,6 +514,18 @@ function reviewSection(p) {
     ${facts.length ? `<div class="text-xs text-slate-600">${facts.join(" · ")}</div>` : ""}
     ${specs.length ? `<dl class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-xs">${specs.map(([k, v]) => `<dt class="text-slate-500">${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` : ""}
     ${field("รายละเอียดสินค้า", `<textarea data-d="description" rows="6" class="${INPUT} h-auto py-2 mt-1 w-full">${esc(p.description || "")}</textarea>`)}
+    <div>
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-xs font-medium text-slate-600">รีวิว (แสดงในกล่องรีวิวของเว็บรีวิว)</span>
+        <span class="flex gap-2">
+          <button type="button" data-act="ai-review" ${p.id && !p._writing ? "" : "disabled"} class="${BTN} h-8 disabled:opacity-50"
+            title="${p.id ? "ใช้ข้อมูลที่บันทึกแล้ว ถ้า AI ใช้ไม่ได้จะสุ่มแบบป้ายยาแทน" : "บันทึกสินค้าก่อน"}">${p._writing ? "AI กำลังเขียน…" : "เขียนด้วย AI"}</button>
+          <button type="button" data-act="spin-review" class="${BTN} h-8">สุ่มแบบป้ายยา</button>
+        </span>
+      </div>
+      <textarea data-d="review" rows="8" class="${INPUT} h-auto py-2 mt-1 w-full" placeholder="กดปุ่มด้านบนเพื่อร่าง แล้วแก้ก่อนกดบันทึก">${esc(p.review || "")}</textarea>
+      <div class="text-[11px] text-slate-400 mt-1">ตรวจข้อความก่อนบันทึก AI อาจเขียนผิด ส่วนแบบสุ่มใช้ได้ทันทีไม่เสียโทเคน</div>
+    </div>
   </div>`;
 }
 
@@ -537,12 +549,35 @@ async function saveDrawer() {
   if (!String(p.title || "").trim()) return toast("ใส่ชื่อสินค้าก่อน", "error");
   if (!/^https?:\/\//i.test(p.link || "")) return toast("ลิงก์ต้องขึ้นต้นด้วย https://", "error");
   if (!p.source) p.source = HubImport.siteName(p.link);
-  const { _uploading, ...row } = p;
+  const { _uploading, _writing, ...row } = p;
   const saved = await guard(() => HubAPI.saveProduct(row), "บันทึกแล้ว");
   if (!saved) return;
   state.drawer = null;
   renderDrawer();
   await reloadAll();
+}
+
+// ร่างรีวิว: AI ก่อน ถ้าใช้ไม่ได้ (ยังไม่ตั้งคีย์ โทเคนหมด ช้า/ล่ม) สุ่มแบบป้ายยาจากข้อมูลในแผงแทน
+async function writeReview(useAi) {
+  const p = readDrawerInputs();
+  if (!useAi || !p.id) {
+    p.review = ReviewWriter.random(p);
+    return renderDrawer();
+  }
+  p._writing = true;
+  renderDrawer();
+  const out = await guard(() => HubAPI.writeReview(p.id));
+  if (state.drawer !== p) return;   // ปิดแผงไปแล้ว
+  readDrawerInputs();                // เก็บที่พิมพ์ระหว่างรอ
+  p._writing = false;
+  if (out && out.text) {
+    p.review = out.text;
+    toast("AI ร่างรีวิวแล้ว ตรวจแล้วกดบันทึก");
+  } else {
+    p.review = ReviewWriter.random(p);
+    toast(`${(out && out.error) || "AI ใช้ไม่ได้"} จึงสุ่มแบบป้ายยาให้แทน`, "error");
+  }
+  renderDrawer();
 }
 
 async function uploadDrawerImage(input) {
@@ -942,6 +977,8 @@ async function onClick(e) {
     case "save-placement": savePlacement(el); break;
     case "delete-placement": deletePlacement(Number(el.dataset.id)); break;
     case "copy-embed": copyEmbed(el); break;
+    case "ai-review": writeReview(true); break;
+    case "spin-review": writeReview(false); break;
     case "use-image": if (state.drawer) { readDrawerInputs(); state.drawer.image_url = el.dataset.url; renderDrawer(); } break;
     case "signout": await HubAPI.signOut(); boot(); break;
   }
