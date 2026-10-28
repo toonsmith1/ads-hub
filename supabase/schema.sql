@@ -343,11 +343,15 @@ as $$
 $$;
 
 -- โฆษณาสำหรับจุดที่วางหนึ่งจุด
---   ปักหมุดขึ้นก่อน → สินค้าในหมวดตามบริบทของหน้า → สินค้าในหมวดของจุดที่วาง
+--   สินค้าที่หน้าขอตามรหัส (p_products เช่นหน้ารีวิว) → ปักหมุด → สินค้าในหมวดตามบริบทของหน้า → สินค้าในหมวดของจุดที่วาง
+--   สินค้าที่ขอตามรหัสแต่หยุดแสดงแล้ว: ได้ชิ้นอื่นในหมวดเดียวกันแทน
 --   สุ่มแบบถ่วงน้ำหนัก: น้ำหนักที่ตั้งไว้ × ค่าคอม × คลิกใน 30 วัน ไม่ซ้ำกันและไม่ซ้ำกับ p_exclude (ที่หน้าแสดงไปแล้ว)
 -- คืนค่า {placement: {key, slots, positions} | null, ads: [{id, title, price, price_text, sold_text, shop, source, image_url}]}
+-- รุ่นก่อนไม่มี p_products ต้องลบทิ้งก่อน ไม่งั้น PostgREST เลือกไม่ได้ว่าจะเรียกตัวไหน
+drop function if exists public.hub_ads(text, text, text, integer, bigint[]);
 create or replace function public.hub_ads(
-  p_site text, p_placement text, p_context text default '', p_count integer default null, p_exclude bigint[] default '{}'
+  p_site text, p_placement text, p_context text default '', p_count integer default null, p_exclude bigint[] default '{}',
+  p_products bigint[] default '{}'
 ) returns jsonb
 language plpgsql security definer
 set search_path = public
@@ -368,6 +372,11 @@ begin
   if coalesce(trim(p_context), '') <> '' then
     ctx := hub_context_categories(p_context);
   end if;
+  p_products := coalesce(p_products, '{}');
+  if cardinality(p_products) > 0 then
+    ctx := ctx || coalesce((select array_agg(distinct category_id) from hub_products
+                            where id = any (p_products) and category_id is not null), '{}');
+  end if;
   if cardinality(pl.category_ids) > 0 then
     -- หมวดที่ตั้งไว้ถูกลบหมดแล้ว = ไม่มีสินค้าให้สุ่ม (ไม่ใช่กลายเป็นทุกหมวด)
     select coalesce(array_agg(distinct id), '{-1}') into cats from hub_categories
@@ -382,11 +391,12 @@ begin
   ),
   ranked as (
     select l.*,
-           case when l.id = any (pl.pinned_ids) then 0
-                when l.category_id = any (ctx) then 1
-                when cats is null or l.category_id = any (cats) then 2
+           case when l.id = any (p_products) then 0
+                when l.id = any (pl.pinned_ids) then 1
+                when l.category_id = any (ctx) then 2
+                when cats is null or l.category_id = any (cats) then 3
            end as tier,
-           array_position(pl.pinned_ids, l.id) as pin_order,
+           coalesce(array_position(p_products, l.id), array_position(pl.pinned_ids, l.id)) as pin_order,
            -- Efraimidis–Spirakis: ค่าน้อยได้ก่อน ยิ่งน้ำหนักมากยิ่งมีโอกาสได้ค่าน้อย
            -ln(1 - random()) / (l.weight * (1 + coalesce(l.commission, 0) / 10.0) * (1 + ln(1 + l.clicks))) as roll
     from live l
@@ -407,8 +417,8 @@ begin
     'ads', ads);
 end;
 $$;
-revoke all on function public.hub_ads(text, text, text, integer, bigint[]) from public;
-grant execute on function public.hub_ads(text, text, text, integer, bigint[]) to anon, authenticated;
+revoke all on function public.hub_ads(text, text, text, integer, bigint[], bigint[]) from public;
+grant execute on function public.hub_ads(text, text, text, integer, bigint[], bigint[]) to anon, authenticated;
 
 -- ลิงก์ /go/<id>: คืนลิงก์ affiliate และบันทึกคลิก (p_log = false สำหรับบอทที่มาเปิดดูตัวอย่างลิงก์)
 -- ส่งต่อได้แม้สินค้าหยุดแสดงแล้ว เพราะหน้าเว็บที่เปิดค้างไว้อาจยังมีการ์ดเก่าอยู่
