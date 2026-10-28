@@ -174,7 +174,22 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", "
   await page.evaluate(() => { window.__fake.ai = "quota"; });
   await page.click("#drawer [data-act=ai-review]");
   await page.waitForFunction(() => document.querySelector("#drawer [data-d=review]").value.includes("4.8/5"));
-  assert((await page.textContent("#toasts")).includes("โทเคนหมด จึงสุ่มแบบป้ายยาให้แทน"));
+  assert((await page.textContent("#toasts")).includes("โทเคนหมด จึงสุ่มให้แทน"));
+  // เลือกแนว: แคปชัน (สุ่มได้แฮชแท็ก) ส่งแนวไปให้ AI และจำแนวไว้ตอนเปิดแผงใหม่
+  await page.selectOption("#drawer [data-act=review-style]", "caption");
+  await page.click("#drawer [data-act=spin-review]");
+  const cap = await page.inputValue("#drawer [data-d=review]");
+  assert(cap.includes("#ป้ายยา") && cap.includes("฿99") && !cap.includes("\n\n"), cap);
+  await page.selectOption("#drawer [data-act=review-style]", "honest");
+  await page.click("#drawer [data-act=spin-review]");
+  assert((await page.inputValue("#drawer [data-d=review]")).includes("ก่อน"));
+  await page.evaluate(() => { window.__fake.ai = "ok"; });
+  await page.click("#drawer [data-act=ai-review]");
+  await page.waitForFunction(() => document.querySelector("#drawer [data-d=review]").value === "รีวิว AI ของ #1");
+  assert.equal(await page.evaluate(() => window.__fake.calls.filter(c => c.writeReview).at(-1).style), "honest");
+  await page.click("#drawer button[data-act=close-drawer]");
+  await page.click("article[data-id='1']");
+  assert.equal(await page.inputValue("#drawer [data-act=review-style]"), "honest");
   await page.fill("#drawer [data-d=review]", "รีวิวที่แก้แล้ว");
   await page.click("#drawer [data-act=save-drawer]");
   await page.waitForFunction(() => window.__fake.products[0].review === "รีวิวที่แก้แล้ว");

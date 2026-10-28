@@ -108,9 +108,9 @@
     async dashboard(days) {
       return must(await client.rpc("hub_dashboard", { p_days: days }));
     },
-    // ร่างรีวิวด้วย AI (Edge Function "review") → {text, model} หรือ {error, reason: no_key | quota | failed}
-    async writeReview(id) {
-      const { data, error } = await client.functions.invoke("review", { body: { id } });
+    // ร่างรีวิวด้วย AI (Edge Function "review") ตามแนว style → {text, model} หรือ {error, reason: no_key | quota | failed}
+    async writeReview(id, style) {
+      const { data, error } = await client.functions.invoke("review", { body: { id, style } });
       if (error) return { error: "เรียกฟังก์ชัน review ไม่ได้ (ติดตั้งแล้วหรือยัง)", reason: "failed" };
       return data || { error: "ไม่มีผลตอบกลับ", reason: "failed" };
     },

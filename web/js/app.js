@@ -580,12 +580,16 @@ function reviewSection(p) {
     ${specs.length ? `<dl class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-xs">${specs.map(([k, v]) => `<dt class="text-slate-500">${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` : ""}
     ${field("รายละเอียดสินค้า", `<textarea data-d="description" rows="6" class="${INPUT} h-auto py-2 mt-1 w-full">${esc(p.description || "")}</textarea>`)}
     <div>
-      <div class="flex items-center justify-between gap-2">
-        <span class="text-xs font-medium text-slate-600">รีวิว (แสดงในกล่องรีวิวของเว็บรีวิว)</span>
-        <span class="flex gap-2">
+      <div class="text-xs font-medium text-slate-600">รีวิว (แสดงในกล่องรีวิวของเว็บรีวิว)</div>
+      <div class="mt-1 flex items-center gap-2">
+        <span class="flex flex-1 items-center gap-2 min-w-0">
+          <span class="text-xs text-slate-500 shrink-0">แนว</span>
+          <select data-act="review-style" class="${INPUT} h-8 py-0 flex-1 min-w-0" title="แนวการเขียน ใช้ทั้ง AI และแบบสุ่ม">${ReviewWriter.STYLES.map(([k, l]) => `<option value="${k}" ${k === reviewStyle() ? "selected" : ""}>${l}</option>`).join("")}</select>
+        </span>
+        <span class="flex gap-2 shrink-0">
           <button type="button" data-act="ai-review" ${p.id && !p._writing ? "" : "disabled"} class="${BTN} h-8 disabled:opacity-50"
-            title="${p.id ? "ใช้ข้อมูลที่บันทึกแล้ว ถ้า AI ใช้ไม่ได้จะสุ่มแบบป้ายยาแทน" : "บันทึกสินค้าก่อน"}">${p._writing ? "AI กำลังเขียน…" : "เขียนด้วย AI"}</button>
-          <button type="button" data-act="spin-review" class="${BTN} h-8">สุ่มแบบป้ายยา</button>
+            title="${p.id ? "ใช้ข้อมูลที่บันทึกแล้ว ถ้า AI ใช้ไม่ได้จะสุ่มแทน" : "บันทึกสินค้าก่อน"}">${p._writing ? "AI กำลังเขียน…" : "เขียนด้วย AI"}</button>
+          <button type="button" data-act="spin-review" class="${BTN} h-8" title="สุ่มจากข้อมูลสินค้า ไม่ใช้ AI ไม่เสียโทเคน">สุ่ม</button>
         </span>
       </div>
       <textarea data-d="review" rows="8" class="${INPUT} h-auto py-2 mt-1 w-full" placeholder="กดปุ่มด้านบนเพื่อร่าง แล้วแก้ก่อนกดบันทึก">${esc(p.review || "")}</textarea>
@@ -632,16 +636,23 @@ async function saveDrawer() {
   await reloadAll();
 }
 
-// ร่างรีวิว: AI ก่อน ถ้าใช้ไม่ได้ (ยังไม่ตั้งคีย์ โทเคนหมด ช้า/ล่ม) สุ่มแบบป้ายยาจากข้อมูลในแผงแทน
+// แนวการเขียนที่เลือกไว้ (จำในเบราว์เซอร์) ใช้ทั้ง AI และแบบสุ่ม
+function reviewStyle() {
+  const v = localGet("hub.reviewStyle");
+  return ReviewWriter.STYLES.some(([k]) => k === v) ? v : "payaa";
+}
+
+// ร่างรีวิว: AI ก่อน ถ้าใช้ไม่ได้ (ยังไม่ตั้งคีย์ โทเคนหมด ช้า/ล่ม) สุ่มจากข้อมูลในแผงแทน ตามแนวที่เลือก
 async function writeReview(useAi) {
   const p = readDrawerInputs();
+  const style = reviewStyle();
   if (!useAi || !p.id) {
-    p.review = ReviewWriter.random(p);
+    p.review = ReviewWriter.random(p, style);
     return renderDrawer();
   }
   p._writing = true;
   renderDrawer();
-  const out = await guard(() => HubAPI.writeReview(p.id));
+  const out = await guard(() => HubAPI.writeReview(p.id, style));
   if (state.drawer !== p) return;   // ปิดแผงไปแล้ว
   readDrawerInputs();                // เก็บที่พิมพ์ระหว่างรอ
   p._writing = false;
@@ -649,8 +660,8 @@ async function writeReview(useAi) {
     p.review = out.text;
     toast("AI ร่างรีวิวแล้ว ตรวจแล้วกดบันทึก");
   } else {
-    p.review = ReviewWriter.random(p);
-    toast(`${(out && out.error) || "AI ใช้ไม่ได้"} จึงสุ่มแบบป้ายยาให้แทน`, "error");
+    p.review = ReviewWriter.random(p, style);
+    toast(`${(out && out.error) || "AI ใช้ไม่ได้"}${out && out.detail ? ` (${out.detail})` : ""} จึงสุ่มให้แทน`, "error");
   }
   renderDrawer();
 }
@@ -1022,7 +1033,7 @@ function setAiPreset(key) {
 async function saveAi(clear) {
   const a = state.ai;
   readAiInputs();
-  if (clear && !confirm("ลบคีย์ AI? ปุ่มเขียนด้วย AI จะกลับไปสุ่มแบบป้ายยา")) return;
+  if (clear && !confirm("ลบคีย์ AI? ปุ่มเขียนด้วย AI จะกลับไปใช้แบบสุ่ม")) return;
   if (!clear) {
     if (!a.api_key && !a.has_key) return toast("วางคีย์ก่อน", "error");
     if (!a.model && a.provider !== "anthropic") return toast("ใส่ชื่อรุ่นก่อน", "error");
@@ -1289,6 +1300,7 @@ async function onChange(e) {
     case "upload": uploadDrawerImage(t); break;
     case "import-file": readImportFile(t); break;
     case "ai-preset": setAiPreset(t.value); break;
+    case "review-style": localSet("hub.reviewStyle", t.value); break;
   }
 }
 

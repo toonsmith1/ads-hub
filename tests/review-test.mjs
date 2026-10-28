@@ -67,8 +67,22 @@ for (const [status, text] of [[400, '{"error":{"message":"Your credit balance is
   r = await call({ id: 5 });
   assert.equal(r.body.reason, "quota", `${status} ต้องเป็น quota`);
 }
-ai = () => new Response("bad model", { status: 404 });
-assert.equal((await call({ id: 5 })).body.reason, "failed");
+ai = () => new Response('{"type":"error","error":{"type":"not_found_error","message":"model: claude-x"}}', { status: 404 });
+r = await call({ id: 5 });
+assert.equal(r.body.reason, "failed");
+assert.equal(r.body.detail, "404: model: claude-x", "บอกสาเหตุจากผู้ให้บริการ");
+ai = () => new Response('{"error":{"message":"invalid x-api-key sk-ant-api03-abcdefghijkl"}}', { status: 401 });
+assert.equal((await call({ id: 5 })).body.detail, "401: invalid x-api-key ***", "ไม่ส่งคีย์กลับ");
+// รุ่นที่ไม่รองรับ effort: ลองใหม่แบบไม่ตั้ง
+let tries = [];
+ai = () => {
+  tries.push(calls.at(-1).body.output_config);
+  return tries.length === 1
+    ? new Response('{"error":{"message":"output_config.effort: not supported by this model"}}', { status: 400 })
+    : new Response(JSON.stringify({ stop_reason: "end_turn", content: [{ type: "text", text: "ok" }] }));
+};
+assert.equal((await call({ id: 5 })).body.text, "ok");
+assert.deepEqual(tries, [{ effort: "low" }, undefined]);
 ai = () => new Response(JSON.stringify({ stop_reason: "refusal", content: [] }));
 assert.equal((await call({ id: 5 })).body.reason, "failed");
 
@@ -102,6 +116,18 @@ settings = [{ value: { provider: "anthropic", api_key: "", model: "" } }];   // 
 ai = () => new Response(JSON.stringify({ choices: [{ message: { content: "รีวิวจาก Gemini" } }] }));
 assert.equal((await call({ id: 5 })).body.model, "gemini-x");
 settings = [];
+
+// แนวการเขียน: ส่ง style ไปได้ แนวที่ไม่รู้จัก (รวมชื่อใน prototype) ใช้ป้ายยา
+r = await call({ id: 5, style: "caption" });
+assert.match(calls.at(-1).body.messages[0].content, /แคปชันสั้นสำหรับโพสต์/);
+assert.match(calls.at(-1).body.messages[0].content, /ห้ามอ้างว่าเคยใช้เอง/, "กติกาความซื่อตรงต้องมีทุกแนว");
+assert.match(calls.at(-1).body.messages[1].content, /^เขียนแคปชันโพสต์/);
+r = await call({ id: 5, style: "honest" });
+assert.match(calls.at(-1).body.messages[0].content, /ควรรู้ก่อนซื้อ/);
+for (const style of ["constructor", "xx", 3]) {
+  await call({ id: 5, style });
+  assert.match(calls.at(-1).body.messages[0].content, /สไตล์ "ป้ายยา"/, String(style));
+}
 
 // ไม่ใช่แอดมิน / ไม่มีสินค้า / รหัสผิด
 admin = false;
