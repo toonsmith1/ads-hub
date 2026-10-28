@@ -104,6 +104,12 @@
       const rows = must(await client.rpc("hub_product_stats", { p_ids: ids, p_days: days }));
       return Object.fromEntries((rows || []).map(r => [r.product_id, { views: Number(r.views), clicks: Number(r.clicks) }]));
     },
+    // ร่างรีวิวด้วย AI (Edge Function "review") → {text, model} หรือ {error, reason: no_key | quota | failed}
+    async writeReview(id) {
+      const { data, error } = await client.functions.invoke("review", { body: { id } });
+      if (error) return { error: "เรียกฟังก์ชัน review ไม่ได้ (ติดตั้งแล้วหรือยัง)", reason: "failed" };
+      return data || { error: "ไม่มีผลตอบกลับ", reason: "failed" };
+    },
     async productTitles(ids) {
       if (!ids.length) return [];
       return must(await client.from("hub_products").select("id, title, status").in("id", ids));

@@ -5,6 +5,7 @@
 //   <div data-adhub="feed"></div>                       ← วาดการ์ดให้เอง
 //   <div data-adhub="detail" data-context="ครู"></div>  ← ส่งคำบอกบริบทของหน้าได้
 //   <div data-adhub="review" data-product="12"></div>   ← ขอสินค้าตามรหัส (เช่นหน้ารีวิว)
+//   <div data-adhub="review" data-product="12" data-layout="review"></div>  ← กล่องรีวิว: รูปทั้งหมด สเปก รายละเอียด ปุ่มซื้อ
 //
 // หรือดึงข้อมูลไปวาดเองด้วย AdHub.load() แล้วเรียก AdHub.observe() เพื่อนับการแสดง (ดู README)
 // ลิงก์บนการ์ดชี้ไปที่ /go/<id> ซึ่งนับคลิกแล้วส่งต่อไปลิงก์ affiliate
@@ -71,8 +72,9 @@
   }
 
   // ---------- ดึงโฆษณา ----------
-  // opts: {placement, context, count, product, allowRepeat}
+  // opts: {placement, context, count, product, full, allowRepeat}
   //   product: รหัสสินค้าที่ต้องการ (ตัวเลข, array หรือ "12, 40") ขึ้นก่อนตามลำดับ ชิ้นที่หยุดแสดงแล้วได้ชิ้นอื่นในหมวดเดียวกันแทน
+  //   full: ขอข้อมูลรีวิวด้วย (images, description, review, details: {brand, rating, rating_count, specs})
   // คืนค่า {placement: {key, slots, positions} | null, ads: [{id, title, price, price_text, sold_text, shop, source, image, href, placement}]}
   async function load(opts) {
     const o = typeof opts === "string" ? { placement: opts } : (opts || {});
@@ -82,7 +84,7 @@
       .map(Number).filter(n => Number.isInteger(n) && n > 0))].slice(0, 24);
     const empty = { placement: null, ads: [] };
     if (!site || !placement) return empty;
-    const cacheKey = `adhub:v1:${site}:${placement}:${context}:${products.join(",")}`;
+    const cacheKey = `adhub:v1:${site}:${placement}:${context}:${products.join(",")}${o.full ? ":full" : ""}`;
     let data;
     try {
       data = await rpc("hub_ads", {
@@ -91,6 +93,11 @@
         p_exclude: o.allowRepeat ? [] : [...shown],
         p_products: products,
       });
+      if (o.full && data && Array.isArray(data.ads) && data.ads.length) {
+        // ขอข้อมูลรีวิวไม่ได้ (เช่นยังไม่ได้รัน schema รุ่นใหม่) ก็ยังแสดงด้วยรูปปกได้
+        const info = new Map((await rpc("hub_product_info", { p_ids: data.ads.map(a => a.id) }).catch(() => null) || []).map(i => [i.id, i]));
+        data.ads = data.ads.map(a => ({ images: [], description: "", review: "", details: {}, ...a, ...info.get(a.id) }));
+      }
       cacheSet(cacheKey, data);
     } catch (err) {
       data = cacheGet(cacheKey);
@@ -171,7 +178,29 @@
 :where(.adhub-caption){font-size:.8em;color:var(--adhub-muted,#64748b)}
 :where(.adhub-price){font-weight:600;color:var(--adhub-price,#e11d48)}
 :where(.adhub-shop){font-size:.75em;color:var(--adhub-muted,#64748b)}
-:where(.adhub-tag){position:absolute;top:6px;left:6px;padding:1px 6px;border-radius:999px;background:rgba(15,23,42,.65);color:#fff;font-size:11px;line-height:1.5}`;
+:where(.adhub-tag){position:absolute;top:6px;left:6px;padding:1px 6px;border-radius:999px;background:rgba(15,23,42,.65);color:#fff;font-size:11px;line-height:1.5}
+:where(.adhub-review){display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:20px;color:var(--adhub-fg,#1e293b);font:inherit}
+:where(.adhub-review+.adhub-review){margin-top:28px;padding-top:28px;border-top:1px solid var(--adhub-border,#e2e8f0)}
+:where(.adhub-gallery){display:flex;flex-direction:column;gap:8px;min-width:0}
+:where(.adhub-main){display:block;width:100%;aspect-ratio:1/1;object-fit:contain;background:#f8fafc;border:1px solid var(--adhub-border,#e2e8f0);border-radius:var(--adhub-radius,12px)}
+:where(.adhub-thumbs){display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+:where(.adhub-thumb){flex:0 0 56px;height:56px;padding:0;border:2px solid transparent;border-radius:8px;background:#f1f5f9;cursor:pointer;overflow:hidden}
+:where(.adhub-thumb[aria-current="true"]){border-color:var(--adhub-accent,#e11d48)}
+:where(.adhub-thumb img){width:100%;height:100%;object-fit:cover;display:block}
+:where(.adhub-info){display:flex;flex-direction:column;gap:10px;min-width:0}
+:where(.adhub-info h3){margin:0;font-size:1.15em;line-height:1.4}
+:where(.adhub-meta){font-size:.85em;color:var(--adhub-muted,#64748b)}
+:where(.adhub-stars){color:#f59e0b;letter-spacing:1px}
+:where(.adhub-review .adhub-price){font-size:1.4em}
+:where(.adhub-buy){display:inline-flex;align-items:center;justify-content:center;align-self:flex-start;min-height:44px;padding:0 22px;border-radius:999px;background:var(--adhub-accent,#e11d48);color:#fff;font-weight:600;text-decoration:none}
+:where(.adhub-buy:hover){filter:brightness(1.08)}
+:where(.adhub-specs){display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:0;font-size:.875em}
+:where(.adhub-specs dt){color:var(--adhub-muted,#64748b)}
+:where(.adhub-specs dd){margin:0;overflow-wrap:anywhere}
+:where(.adhub-desc){font-size:.9em;line-height:1.65;white-space:pre-line;overflow-wrap:anywhere}
+:where(.adhub-text){font-size:1em}
+:where(.adhub-desc summary){cursor:pointer;font-weight:600;white-space:normal}
+:where(.adhub-note){font-size:.75em;color:var(--adhub-muted,#64748b)}`;
     document.head.appendChild(css);
   }
 
@@ -186,11 +215,60 @@
 </a>`;
   }
 
-  function render(el, ads) {
+  // กล่องรีวิว: รูปทั้งหมด (กดรูปเล็กเพื่อเปลี่ยนรูปใหญ่) คะแนน ราคา ปุ่มซื้อ ข้อมูลจำเพาะ และรายละเอียด
+  // ต้องได้ข้อมูลจาก load({full: true}) ถ้าไม่มีจะใช้รูปปกรูปเดียว
+  function reviewHtml(a) {
+    const imgs = [...new Set([...(a.images || []), a.image].filter(Boolean))].slice(0, 12);
+    const d = a.details || {};
+    const rating = Number(d.rating);
+    const stars = rating > 0 ? "★★★★★".slice(0, Math.round(Math.min(rating, 5))).padEnd(5, "☆") : "";
+    const meta = [
+      stars && `<span class="adhub-stars" aria-hidden="true">${stars}</span> ${esc(rating.toFixed(1))}${d.rating_count ? ` (${esc(Number(d.rating_count).toLocaleString("th-TH"))} รีวิว)` : ""}`,
+      d.brand && `แบรนด์ ${esc(d.brand)}`,
+      a.sold_text && esc(a.sold_text),
+      a.shop && `ร้าน ${esc(a.shop)}`,
+    ].filter(Boolean);
+    const specs = d.specs && typeof d.specs === "object" ? Object.entries(d.specs).slice(0, 30) : [];
+    const desc = String(a.description || "").trim();
+    const review = String(a.review || "").trim();
+    return `<div class="adhub-review" data-adhub-id="${esc(a.id)}" data-adhub-placement="${esc(a.placement)}">
+  <div class="adhub-gallery">
+    ${imgs.length ? `<img class="adhub-main" src="${esc(imgs[0])}" alt="${esc(a.title)}" referrerpolicy="no-referrer">` : ""}
+    ${imgs.length > 1 ? `<div class="adhub-thumbs">${imgs.map((u, i) => `<button type="button" class="adhub-thumb" data-src="${esc(u)}" aria-current="${i === 0}" aria-label="รูปที่ ${i + 1}"><img src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer"></button>`).join("")}</div>` : ""}
+  </div>
+  <div class="adhub-info">
+    <h3>${esc(a.title)}</h3>
+    ${meta.length ? `<div class="adhub-meta">${meta.join(" · ")}</div>` : ""}
+    ${priceText(a) ? `<div class="adhub-price">${esc(priceText(a))}</div>` : ""}
+    <a class="adhub-buy" href="${esc(a.href)}" target="_blank" rel="sponsored noopener">ดูราคาล่าสุด / สั่งซื้อ</a>
+    <div class="adhub-note">ลิงก์ affiliate: เราอาจได้ค่าคอมมิชชันเมื่อคุณซื้อผ่านลิงก์นี้ ราคาอาจเปลี่ยนแปลง</div>
+    ${review ? `<div class="adhub-desc adhub-text">${esc(review)}</div>` : ""}
+    ${specs.length ? `<dl class="adhub-specs">${specs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` : ""}
+    ${desc ? (desc.length > 600
+      ? `<details class="adhub-desc"><summary>รายละเอียดสินค้า</summary>${esc(desc)}</details>`
+      : `<div class="adhub-desc">${esc(desc)}</div>`) : ""}
+  </div>
+</div>`;
+  }
+
+  // กดรูปเล็กในกล่องรีวิว: เปลี่ยนรูปใหญ่ (ฟังที่ document ครั้งเดียว ใช้ได้กับกล่องที่วาดทีหลัง)
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest && e.target.closest(".adhub-thumb");
+    const box = btn && btn.closest(".adhub-review");
+    const main = box && box.querySelector(".adhub-main");
+    if (!main) return;
+    main.src = btn.getAttribute("data-src");
+    box.querySelectorAll(".adhub-thumb").forEach(b => b.setAttribute("aria-current", String(b === btn)));
+  });
+
+  // opts.layout: "grid" (การ์ด ค่าเริ่มต้น) หรือ "review" (กล่องรีวิว)
+  function render(el, ads, opts) {
     if (!el) return;
     if (!ads || !ads.length) { el.innerHTML = ""; return; }
     injectCss();
-    el.innerHTML = `<div class="adhub-grid">${ads.map(cardHtml).join("")}</div>`;
+    el.innerHTML = opts && opts.layout === "review"
+      ? ads.map(reviewHtml).join("")
+      : `<div class="adhub-grid">${ads.map(cardHtml).join("")}</div>`;
     observe(el);
   }
 
@@ -199,15 +277,17 @@
     const slots = [...(root || document).querySelectorAll("[data-adhub]:not([data-adhub-done])")];
     for (const el of slots) {   // ทีละช่อง เพื่อให้ช่องหลังรู้ว่าช่องก่อนแสดงอะไรไปแล้ว
       el.setAttribute("data-adhub-done", "");
+      const layout = el.getAttribute("data-layout") || "grid";
       const out = await load({
         placement: el.getAttribute("data-adhub"), context: el.getAttribute("data-context"),
         count: el.getAttribute("data-count"), product: el.getAttribute("data-product"),
+        full: layout === "review",
       });
-      render(el, out.ads);
+      render(el, out.ads, { layout });
     }
   }
 
-  window.AdHub = { site, load, render, observe, scan, cardHtml, flush: () => flush(false) };
+  window.AdHub = { site, load, render, observe, scan, cardHtml, reviewHtml, flush: () => flush(false) };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => scan());
   else scan();
 })();

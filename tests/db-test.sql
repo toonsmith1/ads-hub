@@ -196,3 +196,28 @@ do $$ begin
   assert (select caption from hub_products where link = 'https://example.com/caption-a') = 'ราคา ฿350 ส่งฟรี', 'นำเข้าซ้ำต้องไม่ทับคำโปรย';
 end $$;
 reset role;
+
+-- ---------- เฟส 3.5: hub_product_info ข้อมูลรีวิว ----------
+update hub_products set details = details || '{"specs": {"สี": "ดำ"}, "detail_url": "https://shopee.co.th/x-i.1.77"}', review = 'ใช้มาเดือนนึง' where source_id = '77';
+set role anon;
+do $$
+declare r jsonb; live bigint; hidden bigint;
+begin
+  select id into live from hub_products where source_id = '77';
+  select id into hidden from hub_products where status <> 'active' limit 1;
+  r := hub_product_info(array[hidden, live, live]);
+  assert jsonb_array_length(r) = 2, format('สินค้าที่หยุดแสดงต้องไม่มีในผล ได้ %s', r);
+  assert (r -> 0 ->> 'id')::bigint = live;
+  assert r -> 0 -> 'images' = '["https://cdn.example/3.jpg"]';
+  assert r -> 0 ->> 'description' = 'รุ่นใหม่' and r -> 0 ->> 'review' = 'ใช้มาเดือนนึง';
+  assert r -> 0 -> 'details' = '{"brand": "ABC", "rating": 4.9, "specs": {"สี": "ดำ"}}', format('ไม่ส่ง detail_url ได้ %s', r -> 0 -> 'details');
+  assert hub_product_info(null) = '[]' and hub_product_info('{}') = '[]';
+end $$;
+reset role;
+-- ไม่มีรูปจากหน้าสินค้า: ใช้รูปปกแทน
+update hub_products set images = '{}' where source_id = '77';
+set role anon;
+do $$ begin
+  assert hub_product_info(array[(select id from hub_products where source_id = '77')]) -> 0 -> 'images' = '["https://cdn.example/1.jpg"]';
+end $$;
+reset role;

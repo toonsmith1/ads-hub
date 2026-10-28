@@ -28,9 +28,10 @@
   `data-context` คือคำบอกบริบทของหน้า ถ้าตรงกับชื่อหมวดหรือคำของหมวด จะได้สินค้าหมวดนั้นก่อน
 - เว็บรีวิว (ระบุสินค้าเจาะจง): สร้างจุดที่วางจุดเดียว เช่น `review` จำนวน 1 แล้วในแต่ละหน้าใส่รหัสสินค้า
   ```html
-  <div data-adhub="review" data-product="12"></div>
+  <div data-adhub="review" data-product="12" data-layout="review"></div>
   ```
   ถ้าชิ้นนั้นหยุดแสดงแล้ว จะได้ชิ้นอื่นในหมวดเดียวกันแทน คัดลอกโค้ดของแต่ละชิ้นได้จากแผงแก้ไขสินค้า
+  `data-layout="review"` วาดเป็นกล่องรีวิว (ดูหัวข้อ "เว็บรีวิว" ด้านล่าง) ถ้าไม่ใส่จะได้การ์ดเล็กแบบโฆษณา
 - อยากวาดการ์ดเอง: `const { placement, ads } = await AdHub.load({ placement: "feed", context: "ครู" })`
   ได้ `placement.positions` และ `ads[]` ที่มี `title`, `image`, `price_text`, `shop`, `href` แล้วเรียก `AdHub.observe(กล่อง)`
   ให้นับการแสดง (การ์ดต้องมี `data-adhub-id` และ `data-adhub-placement`) ตัวอย่างเต็มอยู่ใน `tests/ads-e2e.js`
@@ -58,6 +59,21 @@
   `GET https://<project>.supabase.co/rest/v1/hub_products?id=eq.12&select=id,title,price_text,images,description,details`
   `details` มี `brand`, `rating`, `rating_count`, `specs` (ชื่อ: ค่า), `detail_url` และ `detail_at` (เวลาที่ดึง)
   ลิงก์ซื้อยังให้ใช้ `/go/<id>` เพื่อนับคลิก
+
+## เว็บรีวิว (เฟส 3.5)
+
+- **กล่องรีวิว** `data-layout="review"`: รูปทั้งหมด (กดรูปเล็กเพื่อเปลี่ยนรูปใหญ่) คะแนน แบรนด์ ยอดขาย ราคา ปุ่ม "ดูราคาล่าสุด / สั่งซื้อ"
+  (ไปที่ `/go/` นับคลิก) ข้อความรีวิว ข้อมูลจำเพาะ และรายละเอียดสินค้า พร้อมบรรทัดแจ้งว่าเป็นลิงก์ affiliate
+  ปรับสีได้ด้วยตัวแปร CSS `--adhub-accent`, `--adhub-fg`, `--adhub-bg`, `--adhub-border`, `--adhub-muted`
+- **หน้ารีวิวตัวอย่าง** `https://<เว็บ Ad Hub>/review.html?site=<คีย์เว็บ>&id=<รหัสสินค้า>` (จุดที่วางชื่อ `review` หรือใส่ `&placement=...`)
+  ได้กล่องรีวิวและ "สินค้าที่คล้ายกัน" ในหมวดเดียวกัน ชื่อหน้าเป็นชื่อสินค้า คัดลอก `web/review.html` ไปเป็นแม่แบบของเว็บรีวิวได้
+- **วาดเอง**: `await AdHub.load({ placement: "review", product: 12, full: true })` ได้ `ads[]` ที่มี `images`, `description`, `review`,
+  `details` (`brand`, `rating`, `rating_count`, `specs`) เพิ่มจากปกติ หรือ `AdHub.render(กล่อง, ads, { layout: "review" })`
+- **เขียนรีวิวในแผงแก้ไขสินค้า** ช่อง "รีวิว" มี 2 ปุ่ม แก้ข้อความได้ก่อนกดบันทึก
+  - **เขียนด้วย AI**: ให้ AI เขียนจากข้อมูลจริงที่บันทึกไว้ (รายละเอียด สเปก คะแนน) สั่งไว้ว่าห้ามแต่งข้อมูลและห้ามอ้างว่าใช้เอง
+    ถ้า AI ใช้ไม่ได้ (ยังไม่ตั้งคีย์ โทเคน/เครดิตหมด เรียกถี่เกิน) จะสุ่มแบบป้ายยาให้แทนพร้อมบอกเหตุผล
+  - **สุ่มแบบป้ายยา**: ได้ทันที ไม่เสียโทเคน สุ่มประโยคจากชุดข้อความ (`web/js/review-writer.js`) ใส่ข้อมูลจริงของสินค้า
+  - ควรอ่านทุกรีวิวก่อนบันทึก AI อาจเขียนผิด และรีวิวที่คนอ่านแล้วได้ประโยชน์จริงช่วยให้ติดอันดับค้นหาดีกว่าข้อความสุ่ม
 
 ## API สำหรับเว็บหรือแอปอื่น
 
@@ -89,6 +105,10 @@
 **ลิงก์บนการ์ด** ต้องชี้ไปที่ `https://<project>.supabase.co/functions/v1/go/<id>?s=<คีย์เว็บ>&p=<คีย์จุดที่วาง>`
 ไม่มีลิงก์ affiliate ตรงในผลลัพธ์ เพื่อให้ทุกคลิกถูกนับ
 
+**ข้อมูลรีวิว** `POST .../rest/v1/rpc/hub_product_info` ด้วย `{"p_ids": [12]}` (ไม่เกิน 24 รหัส ใช้รหัสที่ได้จาก `hub_ads`)
+ได้ `[{"id": 12, "images": [...], "description": "...", "review": "...", "details": {"brand", "rating", "rating_count", "specs"}}]`
+เฉพาะสินค้าที่ "กำลังแสดง" ไม่มีรูปทั้งหมดจะได้รูปปกแทน
+
 **นับการแสดง** (ไม่บังคับ) `POST .../rest/v1/rpc/hub_log_views` ด้วย `{"p_site": "...", "p_placement": "...", "p_ids": [12, 40]}` ไม่เกิน 24 รหัสต่อครั้ง
 
 ## ติดตั้งครั้งแรก
@@ -113,10 +133,27 @@
    ไม่บังคับ: ตั้ง Secret `HUB_FALLBACK_URL` เป็นหน้าเว็บที่จะพาไปเมื่อสินค้าถูกลบแล้ว
    ทดสอบ: เปิด `https://<project>.supabase.co/functions/v1/go/<รหัสสินค้า>` ต้องเด้งไปหน้า Shopee
 7. ใน Ad Hub กด **เว็บที่แสดงโฆษณา** > เพิ่มเว็บ > เพิ่มจุดที่วาง แล้วคัดลอกโค้ดฝังไปใส่ในเว็บนั้น
+8. **ปุ่มเขียนรีวิวด้วย AI** (ไม่บังคับ ไม่ทำก็ใช้แบบสุ่มได้) Edge Functions > Deploy a new function > Via Editor
+   ตั้งชื่อ `review` วางไฟล์ `supabase/functions/review/index.ts` > Deploy (เปิด Verify JWT ไว้ตามเดิม มีแต่แอดมินที่ใช้ได้)
+   แล้ว Edge Functions > Secrets เพิ่มค่าตามเจ้าที่ใช้
+
+   | เจ้า | `AI_PROVIDER` | `AI_API_KEY` | `AI_MODEL` | `AI_BASE_URL` |
+   |---|---|---|---|---|
+   | Claude (ค่าเริ่มต้น) | `anthropic` หรือไม่ใส่ | คีย์จาก console.anthropic.com | ไม่ใส่ = `claude-opus-5-5` (ถูกกว่า: `claude-haiku-5-5`) | ไม่ใส่ |
+   | OpenAI | `openai` | คีย์ OpenAI | ชื่อรุ่นที่ใช้ | ไม่ใส่ |
+   | Gemini | `openai` | คีย์ Google AI Studio | เช่น `gemini-2.5-flash` | `https://generativelanguage.googleapis.com/v1beta/openai` |
+   | DeepSeek | `openai` | คีย์ DeepSeek | `deepseek-chat` | `https://api.deepseek.com` |
+   | OpenRouter (หลายเจ้าในคีย์เดียว) | `openai` | คีย์ OpenRouter | ชื่อรุ่นตาม OpenRouter | `https://openrouter.ai/api/v1` |
+
+   เจ้าอื่นที่รองรับรูปแบบ OpenAI (`/chat/completions`) ใช้แบบเดียวกัน เปลี่ยนเจ้าได้ทุกเมื่อโดยแก้ Secrets ไม่ต้องแก้โค้ด
 
 ถ้าเคยติดตั้งเฟส 1-2 แล้ว ให้รัน `supabase/schema.sql` ซ้ำอีกครั้งหนึ่ง (ไม่ทำให้ข้อมูลหาย) แล้วทำข้อ 6-7
 
-ถ้าติดตั้งไปแล้วก่อนมีรูปทั้งหมดและรายละเอียด: รัน `supabase/schema.sql` ซ้ำ (เพิ่มคอลัมน์ `images`, `description`, `details`, `caption`)
+ถ้าติดตั้งไปแล้วก่อนมีคำโปรย: รัน `supabase/schema.sql` ซ้ำ (เพิ่มคอลัมน์ `caption`)
+
+ถ้าติดตั้งไปแล้วก่อนเฟส 3.5: รัน `supabase/schema.sql` ซ้ำ (เพิ่มคอลัมน์ `review` และฟังก์ชัน `hub_product_info`) แล้วทำข้อ 8 ถ้าจะใช้ AI
+
+ถ้าติดตั้งไปแล้วก่อนมีรูปทั้งหมดและรายละเอียด: รัน `supabase/schema.sql` ซ้ำ (เพิ่มคอลัมน์ `images`, `description`, `details`)
 แล้วโหลด extension ใหม่ที่ `chrome://extensions` (กดรีโหลด) เพราะต้องได้สิทธิ์ `scripting` เพิ่ม และรีเฟรชหน้า Shopee
 
 อยากได้ลิงก์สั้นเป็น `https://<เว็บ Ad Hub>/go/<id>` (ไม่บังคับ): เพิ่มใน `netlify.toml`
@@ -138,7 +175,10 @@
 | `web/js/api.js` | คุยกับ Supabase ทั้งหมดผ่านไฟล์นี้ |
 | `web/js/importer.js` | อ่าน CSV จับคอลัมน์จากหัวตาราง และแปลงโฆษณาเดิม |
 | `web/js/app.js` | หน้าจอทั้งหมด |
-| `web/ads.js` | สคริปต์ฝังโฆษณาให้เว็บอื่น (`window.AdHub`) |
+| `web/ads.js` | สคริปต์ฝังโฆษณาให้เว็บอื่น (`window.AdHub`) รวมกล่องรีวิว |
+| `web/review.html` | หน้ารีวิวตัวอย่าง (`?site=&id=`) |
+| `web/js/review-writer.js` | ตัวเขียนรีวิวแบบสุ่ม (ป้ายยา) |
+| `supabase/functions/review/index.ts` | ร่างรีวิวด้วย AI (Claude หรือเจ้าที่ใช้รูปแบบ OpenAI) |
 | `supabase/functions/go/index.ts` | ลิงก์ `/go/<id>` นับคลิกแล้วส่งต่อ (Supabase Edge Function) |
 | `tests/fake-api.js` | ข้อมูลปลอมสำหรับทดสอบหน้าจอโดยไม่ต้องมี Supabase |
 | `extension/libs/product-detail-service.js` | เปิดหน้าสินค้าในแท็บเบื้องหลัง อ่านรูปทั้งหมดและรายละเอียด |
@@ -146,11 +186,13 @@
 | `tests/extension-e2e.js` | ทดสอบ extension ใน Chromium จริง (`xvfb-run -a node tests/extension-e2e.js`) |
 | `tests/ads-e2e.js`, `tests/admin-sites-e2e.js` | ทดสอบ ads.js และหน้าต่าง "เว็บที่แสดงโฆษณา" ใน Chromium |
 | `tests/go-test.mjs` | ทดสอบ `/go/` (`node --experimental-strip-types tests/go-test.mjs`) |
+| `tests/review-test.mjs` | ทดสอบฟังก์ชัน `review` (`node --experimental-strip-types tests/review-test.mjs`) |
 
 ## ขั้นต่อไป
 
 - เฟส 2: เสร็จแล้ว ปุ่ม "ส่งเข้าคลังโฆษณา" ใน extension
 - เฟส 3: เสร็จแล้ว (ดูด้านบน) เหลือสลับ transfer มาใช้ ซึ่งทำใน repo transfer
+- เฟส 3.5: เสร็จแล้ว กล่องรีวิว หน้ารีวิวตัวอย่าง และปุ่มเขียนรีวิว (AI / สุ่มแบบป้ายยา)
 - เฟส 4: หน้าสถิติคลิก และย้ายตัวแต่งรูปโฆษณาจาก transfer มาไว้ในแผงแก้ไข
 
 ตอนนี้รูปสินค้าที่นำเข้ายังเป็นลิงก์รูปของเว็บต้นทาง ถ้ารูปต้นทางหาย ให้อัปโหลดทับในแผงแก้ไข
