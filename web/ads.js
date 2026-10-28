@@ -4,6 +4,7 @@
 //   <script src="https://<เว็บ Ad Hub>/ads.js?site=<คีย์เว็บ>" async></script>
 //   <div data-adhub="feed"></div>                       ← วาดการ์ดให้เอง
 //   <div data-adhub="detail" data-context="ครู"></div>  ← ส่งคำบอกบริบทของหน้าได้
+//   <div data-adhub="review" data-product="12"></div>   ← ขอสินค้าตามรหัส (เช่นหน้ารีวิว)
 //
 // หรือดึงข้อมูลไปวาดเองด้วย AdHub.load() แล้วเรียก AdHub.observe() เพื่อนับการแสดง (ดู README)
 // ลิงก์บนการ์ดชี้ไปที่ /go/<id> ซึ่งนับคลิกแล้วส่งต่อไปลิงก์ affiliate
@@ -70,21 +71,25 @@
   }
 
   // ---------- ดึงโฆษณา ----------
-  // opts: {placement, context, count, allowRepeat}
+  // opts: {placement, context, count, product, allowRepeat}
+  //   product: รหัสสินค้าที่ต้องการ (ตัวเลข, array หรือ "12, 40") ขึ้นก่อนตามลำดับ ชิ้นที่หยุดแสดงแล้วได้ชิ้นอื่นในหมวดเดียวกันแทน
   // คืนค่า {placement: {key, slots, positions} | null, ads: [{id, title, price, price_text, sold_text, shop, source, image, href, placement}]}
   async function load(opts) {
     const o = typeof opts === "string" ? { placement: opts } : (opts || {});
     const placement = String(o.placement || "").trim().toLowerCase();
     const context = String(o.context || "").trim();
+    const products = [...new Set((Array.isArray(o.product) ? o.product : String(o.product || "").split(/[\s,]+/))
+      .map(Number).filter(n => Number.isInteger(n) && n > 0))].slice(0, 24);
     const empty = { placement: null, ads: [] };
     if (!site || !placement) return empty;
-    const cacheKey = `adhub:v1:${site}:${placement}:${context}`;
+    const cacheKey = `adhub:v1:${site}:${placement}:${context}:${products.join(",")}`;
     let data;
     try {
       data = await rpc("hub_ads", {
         p_site: site, p_placement: placement, p_context: context,
         p_count: o.count ? Number(o.count) : null,
         p_exclude: o.allowRepeat ? [] : [...shown],
+        p_products: products,
       });
       cacheSet(cacheKey, data);
     } catch (err) {
@@ -192,7 +197,10 @@
     const slots = [...(root || document).querySelectorAll("[data-adhub]:not([data-adhub-done])")];
     for (const el of slots) {   // ทีละช่อง เพื่อให้ช่องหลังรู้ว่าช่องก่อนแสดงอะไรไปแล้ว
       el.setAttribute("data-adhub-done", "");
-      const out = await load({ placement: el.getAttribute("data-adhub"), context: el.getAttribute("data-context"), count: el.getAttribute("data-count") });
+      const out = await load({
+        placement: el.getAttribute("data-adhub"), context: el.getAttribute("data-context"),
+        count: el.getAttribute("data-count"), product: el.getAttribute("data-product"),
+      });
       render(el, out.ads);
     }
   }

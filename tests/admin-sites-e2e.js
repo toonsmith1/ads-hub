@@ -44,6 +44,7 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", "
   await page.click("article[data-id='3']");
   const drawer = await page.textContent("#drawer");
   assert(drawer.includes("รหัส Ad Hub #3") && drawer.includes("คลิก 3 · แสดง 30"), drawer);
+  assert.equal(await page.textContent("[data-embed='product-3']"), '<div data-adhub="review" data-product="3"></div>');
   await page.click("#drawer header [data-act=close-drawer]");
 
   // เปิดหน้าต่างเว็บ: เห็นเว็บเดิม จุดที่วาง ชื่อสินค้าที่ปักหมุด และโค้ดฝัง

@@ -64,6 +64,19 @@ begin
   end loop;
   assert heavy > 250, format('ถ่วงน้ำหนักไม่ได้ผล: ชิ้นหนักขึ้น %s/400', heavy);
 
+  -- ขอสินค้าตามรหัส (หน้ารีวิว): ได้ชิ้นนั้นก่อน แม้ไม่อยู่ในหมวดของจุดที่วาง และมาก่อนปักหมุด
+  r := hub_ads('transfer', 'feed', '', 2, '{}', '{5}');
+  select array_agg((a ->> 'id')::bigint) into ids from jsonb_array_elements(r -> 'ads') a;
+  assert ids = '{5,4}', format('ขอตามรหัสต้องมาก่อน ได้ %s', ids);
+  r := hub_ads('transfer', 'detail', '', 2, '{}', '{3,1}');
+  select array_agg((a ->> 'id')::bigint) into ids from jsonb_array_elements(r -> 'ads') a;
+  assert ids = '{3,1}', format('ต้องเรียงตามที่ขอ ได้ %s', ids);
+  -- ชิ้นที่ขอหยุดแสดงแล้ว (6 รอตรวจ หมวดแฟชั่น): ได้ชิ้นอื่นในหมวดเดียวกันแทน
+  for i in 1..20 loop
+    r := hub_ads('transfer', 'detail', '', 1, '{}', '{6}');
+    assert (r -> 'ads' -> 0 ->> 'id')::bigint in (1, 2, 3), format('ต้องได้ของหมวดเดียวกันแทน ได้ %s', r);
+  end loop;
+
   -- จุดที่ปิดหรือเว็บที่ไม่มี: ไม่มีโฆษณา ไม่ error
   assert hub_ads('transfer', 'off') = '{"ads": [], "placement": null}', 'จุดที่ปิดต้องว่าง';
   assert hub_ads('nosuch', 'feed') = '{"ads": [], "placement": null}', 'เว็บที่ไม่มีต้องว่าง';

@@ -475,6 +475,11 @@ function renderDrawer() {
           </div>
           ${field("โน้ต", `<textarea data-d="note" rows="2" class="${INPUT} h-auto py-2 mt-1 w-full">${esc(p.note || "")}</textarea>`)}
           ${p.id ? `<div class="text-xs text-slate-600">${STATS_DAYS} วันล่าสุด: ${statsText(p.id)}</div>` : ""}
+          ${p.id ? `<div>
+            <div class="flex items-center justify-between text-[11px] text-slate-500"><span>โค้ดฝังสินค้านี้ เช่นในหน้ารีวิว (เปลี่ยน review เป็นคีย์จุดที่วางของเว็บนั้น)</span>
+              <button data-act="copy-embed" data-id="product-${p.id}" class="text-brand-600 hover:underline">คัดลอก</button></div>
+            <pre class="mt-1 p-2 bg-slate-900 text-slate-100 rounded-lg text-xs whitespace-pre-wrap break-all" data-embed="product-${p.id}">${esc(`<div data-adhub="review" data-product="${p.id}"></div>`)}</pre>
+          </div>` : ""}
           ${p.id ? `<div class="text-[11px] text-slate-400">รหัส Ad Hub #${p.id} (ใช้ปักหมุด) · แหล่ง ${esc(p.source || "-")}${p.source_id ? ` · รหัส ${esc(p.source_id)}` : ""} · เพิ่มเมื่อ ${p.created_at ? new Date(p.created_at).toLocaleString("th-TH") : "-"}</div>` : ""}
         </div>
         <footer class="px-5 py-3 border-t border-slate-200 flex items-center gap-2">
