@@ -69,9 +69,11 @@
     }
 
     // แกลเลอรี: รูปใหญ่สุดด้านบนของหน้า แล้วไล่ขึ้นไปหากล่องแรกที่มีหลายรูป (รูปหลัก + รูปย่อย)
-    function gallery() {
+    // skip: กล่องที่ไม่ใช่แกลเลอรี (เช่นคำอธิบายสินค้าที่มีรูปใหญ่) ห้ามเลือกรูปในนั้นเป็นรูปหลัก
+    function gallery(skip) {
       let main = null, area = 0;
       document.querySelectorAll('img, [style*="background-image"]').forEach(el => {
+        if (skip && skip.contains(el)) return;
         const r = el.getBoundingClientRect();
         const top = r.top + window.scrollY;
         if (!srcOf(el) || top > 1400 || r.width < 150 || r.height < 150 || r.width > window.innerWidth * 0.8) return;
@@ -96,13 +98,13 @@
       for (const h of heads) {
         let box = h.nextElementSibling;
         for (let up = h; !box && up.parentElement && up !== document.body; up = up.parentElement) box = up.nextElementSibling;
-        if (box && text(box).length > 1) return box;
+        if (box && (text(box).length > 1 || box.querySelector('img'))) return box;
       }
       return null;
     }
 
     function specs() {
-      const box = section(/^(ข้อมูลจำเพาะ(สินค้า)?|product specifications?|spesifikasi produk|specifications?)$/i);
+      const box = section(/^(ข้อมูลจำเพาะ((ของ)?สินค้า)?|product specifications?|spesifikasi produk|specifications?)$/i);
       const out = {};
       if (!box) return out;
       const rows = box.querySelectorAll('tr, div, li');
@@ -119,12 +121,14 @@
     function read() {
       const ld = jsonLdProduct();
       const ldImages = ld ? [].concat(ld.image || []).map(i => (typeof i === 'string' ? i : i && (i.url || i.contentUrl))).filter(Boolean) : [];
+      const descBox = section(/^(รายละเอียดสินค้า|คำอธิบายสินค้า|product description|deskripsi produk|description)$/i);
+      // รูปในคำอธิบายสินค้า (ร้านมักใส่รูปรายละเอียดแทนข้อความ) ต่อท้ายรูปแกลเลอรี
+      const descImages = descBox ? imagesIn(descBox) : [];
       const imgs = new Map();
-      [...gallery(), ...ldImages, meta('og:image')].filter(Boolean).forEach(u => {
+      [...gallery(descBox), ...ldImages, meta('og:image'), ...descImages].filter(Boolean).forEach(u => {
         const a = full(u);
         if (isImg(a) && !imgs.has(key(a))) imgs.set(key(a), a);
       });
-      const descBox = section(/^(รายละเอียดสินค้า|คำอธิบายสินค้า|product description|deskripsi produk|description)$/i);
       const descs = [ld && ld.description, text(descBox), meta('og:description'), meta('description')]
         .map(d => String(d || '').trim()).filter(Boolean);
       const description = descs.sort((a, b) => b.length - a.length)[0] || '';
@@ -155,7 +159,12 @@
     const start = Date.now();
     const until = start + (waitMs || 12000);
     let last = null, stable = 0;
-    try { window.scrollTo(0, Math.min(document.body.scrollHeight, 2400)); await sleep(300); window.scrollTo(0, 0); } catch (_) {}
+    // เลื่อนลงทีละช่วงให้ส่วนรายละเอียดและรูปที่โหลดตอนเลื่อนถึง (lazy) วาดออกมา แล้วกลับขึ้นบนให้แกลเลอรีอยู่ในจอ
+    try {
+      for (let y = 800; y <= Math.min(document.body.scrollHeight, 8000); y += 800) { window.scrollTo(0, y); await sleep(250); }
+      window.scrollTo(0, 0);
+      await sleep(300);
+    } catch (_) {}
     while (Date.now() < until) {
       const r = read();
       const sig = `${r.images.length}|${r.description.length}|${Object.keys(r.details).length}|${r.links.length}`;

@@ -84,7 +84,7 @@ function shopeeHtml() {
 
 // หน้าสินค้าในพอร์ทัล (ไม่ใช่หน้าสินค้า): สินค้าแรกมีลิงก์ไปหน้าสินค้าจริง สินค้าที่สองไม่มี ต้องได้แค่รูปปก ห้ามไปทางลิงก์ affiliate
 function portalItemHtml(id) {
-  const link = id === "2233445566" ? `<a href="https://shopee.co.th/coat-i.111.${id}">ดูสินค้าบน Shopee</a>` : "";
+  const link = id === "2233445566" ? `<a href="https://shopee.co.th/product/111/${id}">ดูสินค้า</a>` : "";
   return `<!doctype html><html><head><meta charset="utf-8"><title>Offer</title></head><body>
     <div class="ItemCard__image"><img src="https://down-th.img.susercontent.com/file/${id}" width="300" height="300"></div>
     ${link}<a href="https://affiliate.shopee.co.th/offer/product_offer">กลับ</a></body></html>`;
@@ -107,10 +107,11 @@ function productPageHtml(id) {
       </div>
       <div style="flex:1"><h1>สินค้า ${id}</h1><img src="https://down-th.img.susercontent.com/file/star" style="width:12px;height:12px"></div>
     </div>
-    <section><h2>ข้อมูลจำเพาะสินค้า</h2>
+    <section><h2>ข้อมูลจำเพาะของสินค้า</h2>
       <div><div><label>แบรนด์</label><div>แบรนด์${id}</div></div><div><label>ส่งจาก</label><div>กรุงเทพมหานคร</div></div></div>
     </section>
-    <section><h2>รายละเอียดสินค้า</h2><div class="desc" style="white-space:pre-wrap">ผ้าทวิตหนา ใส่สบาย\nมี 3 สี ดำ ครีม น้ำตาล\nรอบอก 40 นิ้ว</div></section>
+    <section><h2>รายละเอียดสินค้า</h2><div><div class="desc" style="white-space:pre-wrap">ผ้าทวิตหนา ใส่สบาย\nมี 3 สี ดำ ครีม น้ำตาล\nรอบอก 40 นิ้ว</div>
+      ${[1, 2].map(n => `<img src="https://down-th.img.susercontent.com/file/${id}-d${n}@resize_w875_nl" style="width:800px;height:800px">`).join("")}</div></section>
     <section><h2>สินค้าที่คล้ายกัน</h2>${[1, 2, 3].map(n => `<img src="https://down-th.img.susercontent.com/file/other${n}" style="width:180px;height:180px">`).join("")}</section>`;
   return `<!doctype html><html><head><meta charset="utf-8"><title>สินค้า</title></head><body><div id="app"></div>
     <script>setTimeout(() => {
@@ -149,8 +150,8 @@ const step = (msg) => console.log("✓ " + msg);
     });
     await ctx.route("https://shopee.co.th/**", route => {
       opened.push(route.request().url());
-      const m = route.request().url().match(/i\.\d+\.(\d+)/);
-      route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: productPageHtml(m ? m[1] : "0") });
+      const m = route.request().url().match(/i\.\d+\.(\d+)|product\/\d+\/(\d+)/);
+      route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: productPageHtml(m ? m[1] || m[2] : "0") });
     });
     // ลิงก์ affiliate: ถ้าถูกเปิดจะส่งต่อไปหน้าสินค้า (ต้องไม่ถูกเปิดเลย ตรวจด้านล่าง)
     await ctx.route("https://s.shopee.co.th/**", route => {
@@ -231,28 +232,28 @@ const step = (msg) => console.log("✓ " + msg);
     const g = (id, n) => `https://down-th.img.susercontent.com/file/${id}-g${n}`;
     for (const it of [first]) {
       const id = it.source_id;
-      assert.deepStrictEqual(it.images, [1, 2, 3, 4, 5].map(n => g(id, n)), `รูปของ ${id}: ${JSON.stringify(it.images)}`);
+      assert.deepStrictEqual(it.images, [...[1, 2, 3, 4, 5].map(n => g(id, n)), g(id, "").replace(/-g$/, "-d1"), g(id, "").replace(/-g$/, "-d2")], `รูปของ ${id}: ${JSON.stringify(it.images)}`);
       assert.match(it.description, /ผ้าทวิตหนา ใส่สบาย\nมี 3 สี/);
       assert.strictEqual(it.details.brand, "แบรนด์" + id);
       assert.strictEqual(it.details.rating, 4.8);
       assert.strictEqual(it.details.rating_count, 1520);
       assert.deepStrictEqual(it.details.specs, { "แบรนด์": "แบรนด์" + id, "ส่งจาก": "กรุงเทพมหานคร" });
-      assert.match(it.details.detail_url, new RegExp(`i\\.\\d+\\.${id}`));
+      assert.match(it.details.detail_url, new RegExp(`(i\\.\\d+\\.|product/\\d+/)${id}`));
     }
     assert.ok(opened.includes("https://affiliate.shopee.co.th/offer/product_offer/2233445566"), "ต้องลองหน้าสินค้าในพอร์ทัลก่อน");
-    assert.ok(opened.includes("https://shopee.co.th/coat-i.111.2233445566"), "ต้องตามลิงก์ที่มีรหัสสินค้าไปหน้าสินค้าจริง");
+    assert.ok(opened.includes("https://shopee.co.th/product/111/2233445566"), "ต้องตามลิงก์ \"ดูสินค้า\" ในพอร์ทัลไปหน้าสินค้าจริง");
     assert.ok(!opened.includes("https://s.shopee.co.th/aaa111"), "เจอหน้าสินค้าแล้วต้องไม่เปิดลิงก์ affiliate");
     assert.ok(!opened.some(u => u.startsWith("https://s.shopee.co.th/")), "ห้ามเปิดลิงก์ affiliate (Shopee นับเป็นคลิก): " + opened);
     assert.deepStrictEqual(sent.find(i => i.source_id === "3344556677").images || [], [], "หาหน้าสินค้าไม่เจอต้องไม่มีรูปจากหน้าอื่น");
     assert.match(status, /ได้รูปทั้งหมดและรายละเอียด 1\/3/);
     const tabsLeft = await sw.evaluate(() => chrome.tabs.query({}).then(t => t.map(x => x.url)));
-    assert.ok(!tabsLeft.some(u => /shopee\.co\.th\/.*-i\.|product_offer\/\d/.test(u)), "ต้องปิดแท็บที่เปิดดึงข้อมูล: " + tabsLeft);
-    step("เปิดหน้าสินค้าในแท็บเบื้องหลัง: ได้รูปทั้งหมด 5 รูป (ไม่ปนสินค้าแนะนำ) รายละเอียด ข้อมูลจำเพาะ คะแนน ไม่เปิดลิงก์ affiliate และปิดแท็บ");
+    assert.ok(!tabsLeft.some(u => /shopee\.co\.th\/(.*-i\.|product\/)|product_offer\/\d/.test(u)), "ต้องปิดแท็บที่เปิดดึงข้อมูล: " + tabsLeft);
+    step("เปิดหน้าสินค้าในแท็บเบื้องหลัง: ได้รูปแกลเลอรี 5 รูป + รูปในคำอธิบาย 2 รูป (ไม่ปนสินค้าแนะนำ) รายละเอียด ข้อมูลจำเพาะ คะแนน ไม่เปิดลิงก์ affiliate และปิดแท็บ");
 
     // 5) บันทึกลงแดชบอร์ดในเครื่องด้วย แล้วส่งทั้งหมดจากแดชบอร์ด
     const local = await sw.evaluate(() => new Promise(r => chrome.storage.local.get(["shopee_products"], x => r(x.shopee_products || []))));
     assert.strictEqual(local.length, 3);
-    assert.strictEqual(local.find(p => p.shopeeId === "2233445566").images.length, 5, "แดชบอร์ดในเครื่องต้องเก็บรูปทั้งหมดด้วย");
+    assert.strictEqual(local.find(p => p.shopeeId === "2233445566").images.length, 7, "แดชบอร์ดในเครื่องต้องเก็บรูปทั้งหมดด้วย");
     calls.length = 0;
     await dash.bringToFront();
     await dash.reload();
