@@ -41,7 +41,7 @@ function listen(handler) {
         // สินค้า 5 มีรูปทั้งหมดและรายละเอียด ชิ้นอื่นไม่มี (หยุดแสดง = ไม่อยู่ในผล)
         const info = json.p_ids.filter(id => id === 5).map(id => ({
           id, images: ["https://img.example/5a.png", "https://img.example/5b.png"],
-          description: "ใช้ดี <script>x</script>\nบรรทัดสอง",
+          description: "ใช้ดี <script>x</script>\nบรรทัดสอง", review: "ใช้มาเดือนนึง <b>ดีมาก</b>",
           details: { brand: "ABC", rating: 4.6, rating_count: 1234, specs: { "สี": "ดำ <i>" } },
         }));
         res.writeHead(200, { ...cors, "Content-Type": "application/json" });
@@ -101,8 +101,9 @@ function listen(handler) {
     id: el.dataset.adhubId, main: el.querySelector(".adhub-main").src,
     thumbs: [...el.querySelectorAll(".adhub-thumb")].map(b => b.dataset.src),
     meta: el.querySelector(".adhub-meta").textContent, buy: el.querySelector(".adhub-buy").href,
-    specs: el.querySelector(".adhub-specs").textContent, desc: el.querySelector(".adhub-desc").textContent,
-    scripts: el.querySelectorAll("script, i").length,
+    specs: el.querySelector(".adhub-specs").textContent, desc: el.querySelector(".adhub-desc:not(.adhub-text)").textContent,
+    review: el.querySelector(".adhub-text").textContent,
+    scripts: el.querySelectorAll("script, i, b").length,
   }));
   assert.equal(box.id, "5");
   assert.deepEqual(box.thumbs, ["https://img.example/5a.png", "https://img.example/5b.png", "https://img.example/5.png"], "รูปทั้งหมด + รูปปก ไม่ซ้ำ");
@@ -112,6 +113,7 @@ function listen(handler) {
   assert.equal(box.buy, `${apiUrl}/functions/v1/go/5?s=transfer&p=detail`);
   assert.equal(box.specs, "สีดำ <i>");
   assert.equal(box.desc, "ใช้ดี <script>x</script>\nบรรทัดสอง");
+  assert.equal(box.review, "ใช้มาเดือนนึง <b>ดีมาก</b>");
   assert.equal(box.scripts, 0, "ข้อมูลจากหน้าสินค้าต้องไม่กลายเป็น HTML");
   await page.click("#full .adhub-thumb:nth-child(2)");
   assert.equal(await page.$eval("#full .adhub-main", el => el.src), "https://img.example/5b.png");
@@ -153,7 +155,7 @@ function listen(handler) {
   assert.deepEqual(picked, [8]);
   // full: ชิ้นที่ไม่มีข้อมูลรีวิวได้ค่าว่าง ไม่พัง
   const bare = await page.evaluate(async () => (await AdHub.load({ placement: "detail", product: 1, full: true, allowRepeat: true })).ads[0]);
-  assert.deepEqual([bare.id, bare.images, bare.description, bare.details], [1, [], "", {}]);
+  assert.deepEqual([bare.id, bare.images, bare.description, bare.review, bare.details], [1, [], "", "", {}]);
   await new Promise(r => setTimeout(r, 2200));
   assert.deepEqual(calls.filter(c => c.path === "/rest/v1/rpc/hub_log_views").at(-1).body.p_ids, [6, 7]);
 

@@ -74,7 +74,7 @@
   // ---------- ดึงโฆษณา ----------
   // opts: {placement, context, count, product, full, allowRepeat}
   //   product: รหัสสินค้าที่ต้องการ (ตัวเลข, array หรือ "12, 40") ขึ้นก่อนตามลำดับ ชิ้นที่หยุดแสดงแล้วได้ชิ้นอื่นในหมวดเดียวกันแทน
-  //   full: ขอข้อมูลรีวิวด้วย (images, description, details: {brand, rating, rating_count, specs})
+  //   full: ขอข้อมูลรีวิวด้วย (images, description, review, details: {brand, rating, rating_count, specs})
   // คืนค่า {placement: {key, slots, positions} | null, ads: [{id, title, price, price_text, sold_text, shop, source, image, href, placement}]}
   async function load(opts) {
     const o = typeof opts === "string" ? { placement: opts } : (opts || {});
@@ -96,7 +96,7 @@
       if (o.full && data && Array.isArray(data.ads) && data.ads.length) {
         // ขอข้อมูลรีวิวไม่ได้ (เช่นยังไม่ได้รัน schema รุ่นใหม่) ก็ยังแสดงด้วยรูปปกได้
         const info = new Map((await rpc("hub_product_info", { p_ids: data.ads.map(a => a.id) }).catch(() => null) || []).map(i => [i.id, i]));
-        data.ads = data.ads.map(a => ({ images: [], description: "", details: {}, ...a, ...info.get(a.id) }));
+        data.ads = data.ads.map(a => ({ images: [], description: "", review: "", details: {}, ...a, ...info.get(a.id) }));
       }
       cacheSet(cacheKey, data);
     } catch (err) {
@@ -197,6 +197,7 @@
 :where(.adhub-specs dt){color:var(--adhub-muted,#64748b)}
 :where(.adhub-specs dd){margin:0;overflow-wrap:anywhere}
 :where(.adhub-desc){font-size:.9em;line-height:1.65;white-space:pre-line;overflow-wrap:anywhere}
+:where(.adhub-text){font-size:1em}
 :where(.adhub-desc summary){cursor:pointer;font-weight:600;white-space:normal}
 :where(.adhub-note){font-size:.75em;color:var(--adhub-muted,#64748b)}`;
     document.head.appendChild(css);
@@ -227,6 +228,7 @@
     ].filter(Boolean);
     const specs = d.specs && typeof d.specs === "object" ? Object.entries(d.specs).slice(0, 30) : [];
     const desc = String(a.description || "").trim();
+    const review = String(a.review || "").trim();
     return `<div class="adhub-review" data-adhub-id="${esc(a.id)}" data-adhub-placement="${esc(a.placement)}">
   <div class="adhub-gallery">
     ${imgs.length ? `<img class="adhub-main" src="${esc(imgs[0])}" alt="${esc(a.title)}" referrerpolicy="no-referrer">` : ""}
@@ -238,6 +240,7 @@
     ${priceText(a) ? `<div class="adhub-price">${esc(priceText(a))}</div>` : ""}
     <a class="adhub-buy" href="${esc(a.href)}" target="_blank" rel="sponsored noopener">ดูราคาล่าสุด / สั่งซื้อ</a>
     <div class="adhub-note">ลิงก์ affiliate: เราอาจได้ค่าคอมมิชชันเมื่อคุณซื้อผ่านลิงก์นี้ ราคาอาจเปลี่ยนแปลง</div>
+    ${review ? `<div class="adhub-desc adhub-text">${esc(review)}</div>` : ""}
     ${specs.length ? `<dl class="adhub-specs">${specs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` : ""}
     ${desc ? (desc.length > 600
       ? `<details class="adhub-desc"><summary>รายละเอียดสินค้า</summary>${esc(desc)}</details>`
