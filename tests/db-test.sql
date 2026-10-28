@@ -43,6 +43,7 @@ begin
   assert 2 = any (seen), 'หมวดย่อย (เสื้อคลุม) ต้องสุ่มได้ด้วย';
   assert (r -> 'placement' ->> 'slots')::int = 3 and r -> 'placement' -> 'positions' = '[2, 6, 10]', 'ต้องคืนค่าตั้งของจุดที่วาง';
   assert not (r -> 'ads' -> 0 ? 'link'), 'ไม่ส่งลิงก์ affiliate ตรง ให้ไปผ่าน /go/';
+  assert r -> 'ads' -> 0 ? 'caption', 'ต้องส่งคำโปรยไปด้วย';
 
   -- ไม่ซ้ำกับที่หน้าแสดงไปแล้ว
   r := hub_ads('transfer', 'feed', '', 5, '{4,1,2}');
@@ -182,6 +183,17 @@ update hub_products set status = 'active' where source_id = '77';
 set role anon;
 do $$ begin
   assert (select cardinality(images) from hub_products where source_id = '77') = 1;
+end $$;
+reset role;
+
+-- คำโปรย: นำเข้าครั้งแรกได้คำโปรย นำเข้าซ้ำไม่ทับของที่มีอยู่ (แอดมินอาจแก้ไว้)
+set request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
+set role authenticated;
+do $$ begin
+  perform hub_import_products('[{"title": "โปรย A", "link": "https://example.com/caption-a", "caption": "  ราคา ฿350 ส่งฟรี  "}]', 'active');
+  assert (select caption from hub_products where link = 'https://example.com/caption-a') = 'ราคา ฿350 ส่งฟรี';
+  perform hub_import_products('[{"title": "โปรย A", "link": "https://example.com/caption-a", "caption": "อย่างอื่น"}]', 'active');
+  assert (select caption from hub_products where link = 'https://example.com/caption-a') = 'ราคา ฿350 ส่งฟรี', 'นำเข้าซ้ำต้องไม่ทับคำโปรย';
 end $$;
 reset role;
 

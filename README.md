@@ -98,7 +98,7 @@
 ได้กลับมา
 ```json
 {"placement": {"key": "review", "slots": 1, "positions": []},
- "ads": [{"id": 12, "title": "...", "price": 320, "price_text": "฿320", "sold_text": "...", "shop": "...", "source": "shopee", "image_url": "https://..."}]}
+ "ads": [{"id": 12, "title": "...", "caption": "คำโปรย (อาจว่าง)", "price": 320, "price_text": "฿320", "sold_text": "...", "shop": "...", "source": "shopee", "image_url": "https://..."}]}
 ```
 เว็บหรือจุดที่วางที่ไม่มีหรือปิดอยู่ได้ `{"placement": null, "ads": []}`
 
@@ -148,6 +148,8 @@
    เจ้าอื่นที่รองรับรูปแบบ OpenAI (`/chat/completions`) ใช้แบบเดียวกัน เปลี่ยนเจ้าได้ทุกเมื่อโดยแก้ Secrets ไม่ต้องแก้โค้ด
 
 ถ้าเคยติดตั้งเฟส 1-2 แล้ว ให้รัน `supabase/schema.sql` ซ้ำอีกครั้งหนึ่ง (ไม่ทำให้ข้อมูลหาย) แล้วทำข้อ 6-7
+
+ถ้าติดตั้งไปแล้วก่อนมีคำโปรย: รัน `supabase/schema.sql` ซ้ำ (เพิ่มคอลัมน์ `caption`)
 
 ถ้าติดตั้งไปแล้วก่อนเฟส 3.5: รัน `supabase/schema.sql` ซ้ำ (เพิ่มคอลัมน์ `review` และฟังก์ชัน `hub_product_info`) แล้วทำข้อ 8 ถ้าจะใช้ AI
 

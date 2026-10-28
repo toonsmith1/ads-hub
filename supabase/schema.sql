@@ -57,6 +57,8 @@ alter table public.hub_products add column if not exists images text[] not null 
 alter table public.hub_products add column if not exists description text not null default '';
 -- ข้อมูลอื่นจากหน้าสินค้า เช่น {brand, rating, rating_count, specs: {ชื่อ: ค่า}, detail_url, detail_at}
 alter table public.hub_products add column if not exists details jsonb not null default '{}';
+-- คำโปรยสั้นๆ บนการ์ดโฆษณา เช่น "ราคา ฿350 ส่งฟรี" (เว็บที่แสดงเลือกเองว่าจะโชว์ตรงไหน)
+alter table public.hub_products add column if not exists caption text not null default '';
 -- รีวิวที่เขียนแล้ว (AI ร่าง หรือสุ่มแบบป้ายยา แล้วแก้ในแผงแก้ไข) แสดงในกล่องรีวิวของ ads.js
 alter table public.hub_products add column if not exists review text not null default '';
 
@@ -120,7 +122,7 @@ create policy "admin write" on public.hub_products for all to authenticated
 
 -- ---------- นำเข้าสินค้าทีละหลายรายการ ----------
 -- p_items: [{title, link, source, source_id, price, price_text, commission, sold_text, shop, image_url, category, search_keyword,
---            images: [url], description, details: {}}]
+--            images: [url], description, details: {}, caption}]
 -- มีอยู่แล้ว (แหล่ง + รหัสเดียวกัน หรือลิงก์เดียวกันเมื่อไม่มีรหัส): อัปเดตราคา ค่าคอม ยอดขาย ไม่แตะหมวด สถานะ และสิ่งที่แอดมินแก้ไว้
 --   รูปทั้งหมด รายละเอียด และ details: ใช้ของใหม่เมื่อส่งมา (หน้าสินค้าเปลี่ยนได้) ส่งมาว่าง = คงของเดิม
 -- คืนค่า {added, updated, skipped, errors: [{row, error}]}
@@ -189,6 +191,7 @@ begin
           images = case when cardinality(v_images) > 0 then v_images else images end,
           description = case when v_desc <> '' then v_desc else description end,
           details = details || v_details,
+          caption = case when caption = '' then left(trim(coalesce(item ->> 'caption', '')), 300) else caption end,
           link = v_link,
           last_seen_at = now()
         where id = v_existing;
@@ -206,13 +209,14 @@ begin
           order by length(k) desc, c.sort limit 1;
         end if;
         insert into hub_products (source, source_id, title, price, price_text, commission, sold_text, shop,
-                                  link, image_url, category_id, status, search_keyword, images, description, details)
+                                  link, image_url, category_id, status, search_keyword, images, description, details, caption)
         values (v_source, v_source_id, v_title,
                 nullif(item ->> 'price', '')::numeric, coalesce(item ->> 'price_text', ''),
                 nullif(item ->> 'commission', '')::numeric, coalesce(item ->> 'sold_text', ''),
                 left(coalesce(item ->> 'shop', ''), 80), v_link,
                 coalesce(nullif(item ->> 'image_url', ''), v_images[1], ''),
-                v_cat, p_status, left(coalesce(item ->> 'search_keyword', ''), 120), v_images, v_desc, v_details);
+                v_cat, p_status, left(coalesce(item ->> 'search_keyword', ''), 120), v_images, v_desc, v_details,
+                left(trim(coalesce(item ->> 'caption', '')), 300));
         added := added + 1;
       end if;
     exception when others then
@@ -372,7 +376,7 @@ $$;
 --   สินค้าที่หน้าขอตามรหัส (p_products เช่นหน้ารีวิว) → ปักหมุด → สินค้าในหมวดตามบริบทของหน้า → สินค้าในหมวดของจุดที่วาง
 --   สินค้าที่ขอตามรหัสแต่หยุดแสดงแล้ว: ได้ชิ้นอื่นในหมวดเดียวกันแทน
 --   สุ่มแบบถ่วงน้ำหนัก: น้ำหนักที่ตั้งไว้ × ค่าคอม × คลิกใน 30 วัน ไม่ซ้ำกันและไม่ซ้ำกับ p_exclude (ที่หน้าแสดงไปแล้ว)
--- คืนค่า {placement: {key, slots, positions} | null, ads: [{id, title, price, price_text, sold_text, shop, source, image_url}]}
+-- คืนค่า {placement: {key, slots, positions} | null, ads: [{id, title, caption, price, price_text, sold_text, shop, source, image_url}]}
 -- รุ่นก่อนไม่มี p_products ต้องลบทิ้งก่อน ไม่งั้น PostgREST เลือกไม่ได้ว่าจะเรียกตัวไหน
 drop function if exists public.hub_ads(text, text, text, integer, bigint[]);
 create or replace function public.hub_ads(
@@ -433,7 +437,7 @@ begin
     limit n
   )
   select coalesce(jsonb_agg(jsonb_build_object(
-           'id', id, 'title', title, 'price', price, 'price_text', price_text, 'sold_text', sold_text,
+           'id', id, 'title', title, 'caption', caption, 'price', price, 'price_text', price_text, 'sold_text', sold_text,
            'shop', shop, 'source', source, 'image_url', image_url)
          order by tier, pin_order nulls last, roll), '[]'::jsonb)
   into ads from picked;

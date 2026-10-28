@@ -467,6 +467,7 @@ function renderDrawer() {
             ${field("ร้าน / ผู้ลงโฆษณา", input("shop"))}
             ${field("หมวดหมู่", `<select data-d="category_id" class="${INPUT} mt-1 w-full"><option value="">(ไม่มีหมวด)</option>${state.cats.map(c => `<option value="${c.id}" ${p.category_id === c.id ? "selected" : ""}>${c.parent_id ? "— " : ""}${esc(c.name)}</option>`).join("")}</select>`)}
           </div>
+          ${field("คำโปรย", `<textarea data-d="caption" rows="2" maxlength="300" placeholder="เช่น ราคา ฿350 ส่งฟรี" class="${INPUT} h-auto py-2 mt-1 w-full">${esc(p.caption || "")}</textarea>`, "ข้อความสั้นใต้หัวข้อบนการ์ดโฆษณา เว้นว่างได้ (เว็บที่แสดงจะใช้ราคาแทน)")}
           ${field("แท็ก", `<input data-d="tags" value="${esc((p.tags || []).join(", "))}" class="${INPUT} mt-1 w-full">`, "คั่นด้วยจุลภาค เช่น ลดราคา, ของขวัญ")}
           <div class="grid grid-cols-3 gap-3">
             ${field("น้ำหนักการสุ่ม", input("weight", 'type="number" min="1" max="10"'), "1–10 ยิ่งมากยิ่งขึ้นบ่อย")}
