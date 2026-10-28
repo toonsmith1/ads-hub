@@ -55,11 +55,25 @@
       return m ? m[1] : '';
     }
 
+    // กรอบโปรโมชัน (เช่น "ส่วนลด", กรอบร้าน) ที่วางทับรูปสินค้า: รูปที่อยู่หลังรูปอื่นในกล่องเดียวกันและทับตำแหน่งเดียวกันเกือบทั้งรูป
+    // หรือไฟล์ประเภทกรอบของ Shopee (รหัส 11134258) ไม่ใช่รูปสินค้า
+    function isOverlay(el, u) {
+      if (/[/-]11134258-/.test(u)) return true;
+      const box = el.parentElement, r = el.getBoundingClientRect();
+      if (!box || !r.width || !r.height) return false;
+      return Array.from(box.querySelectorAll('img')).some(o => {
+        if (o === el || !(o.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) return false;
+        const q = o.getBoundingClientRect();
+        const w = Math.min(r.right, q.right) - Math.max(r.left, q.left), h = Math.min(r.bottom, q.bottom) - Math.max(r.top, q.top);
+        return w > 0 && h > 0 && w * h >= 0.8 * r.width * r.height;
+      });
+    }
+
     function imagesIn(rootEl) {
       const seen = new Map();
       rootEl.querySelectorAll('img, [style*="background-image"]').forEach(el => {
         const u = srcOf(el);
-        if (!u || !isImg(abs(u))) return;
+        if (!u || !isImg(abs(u)) || isOverlay(el, abs(u))) return;
         const r = el.getBoundingClientRect();
         // ไอคอน โลโก้ ดาว: เล็กเกินไป
         if (r.width && r.height && (r.width < 40 || r.height < 40)) return;
@@ -76,7 +90,7 @@
         if (skip && skip.contains(el)) return;
         const r = el.getBoundingClientRect();
         const top = r.top + window.scrollY;
-        if (!srcOf(el) || top > 1400 || r.width < 150 || r.height < 150 || r.width > window.innerWidth * 0.8) return;
+        if (!srcOf(el) || isOverlay(el, abs(srcOf(el))) || top > 1400 || r.width < 150 || r.height < 150 || r.width > window.innerWidth * 0.8) return;
         if (r.width * r.height > area) { area = r.width * r.height; main = el; }
       });
       if (!main) return [];

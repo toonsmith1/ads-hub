@@ -62,9 +62,19 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", "
   await page.click("#drawer [data-act=use-image][data-url$='g2.png']");
   assert.equal(await page.inputValue("#drawer [data-d=image_url]"), "https://img.example/g2.png");
   assert.equal(await page.inputValue("#drawer [data-d=description]"), "ผ้าทวิตหนา ใส่สบาย", "เลือกรูปแล้วข้อความที่พิมพ์ต้องไม่หาย");
+  // ลบรูปที่ไม่เอา: ลบรูปปกแล้วรูปถัดไปเป็นรูปปกแทน และจำไว้ไม่ให้นำเข้าซ้ำแล้วกลับมา
+  await page.click("#drawer [data-act=remove-image][data-url$='g2.png']");
+  assert.equal(await page.locator("#drawer [data-act=use-image]").count(), 2);
+  assert.equal(await page.inputValue("#drawer [data-d=description]"), "ผ้าทวิตหนา ใส่สบาย", "ลบรูปแล้วข้อความที่พิมพ์ต้องไม่หาย");
+  const cover = await page.inputValue("#drawer [data-d=image_url]");
+  assert(cover && !cover.endsWith("g2.png"), cover);
   await page.click("#drawer [data-act=save-drawer]");
-  await page.waitForFunction(() => window.__fake.products[0].image_url.endsWith("g2.png"));
-  assert.equal(await page.evaluate(() => window.__fake.products[0].description), "ผ้าทวิตหนา ใส่สบาย");
+  await page.waitForFunction(() => !window.__fake.products[0].images.some(u => u.endsWith("g2.png")));
+  const saved = await page.evaluate(() => window.__fake.products[0]);
+  assert.equal(saved.images.length, 2);
+  assert.equal(saved.image_url, cover);
+  assert.deepEqual(saved.details.removed_images, ["https://img.example/g2.png"]);
+  assert.equal(saved.description, "ผ้าทวิตหนา ใส่สบาย");
 
   // ร่างรีวิว: สุ่มแบบป้ายยาจากข้อมูลจริง / AI / AI ใช้ไม่ได้ → สุ่มแทน แล้วบันทึก
   await page.waitForTimeout(300);   // รอรายการโหลดใหม่หลังบันทึก
