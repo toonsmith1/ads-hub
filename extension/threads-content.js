@@ -2066,7 +2066,7 @@
         <div id="tw-active-card" class="tw-active-card">
           <div class="tw-item-main">
             <div class="tw-item-thumb-box">
-              <img id="tw-item-img" class="tw-item-thumb" src="" alt="Thumbnail Produk" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'72\\' height=\\'72\\' fill=\\'%23555\\'><rect width=\\'100%\\' height=\\'100%\\' fill=\\'%2327272a\\'/><text x=\\'50%\\' y=\\'50%\\' dominant-baseline=\\'middle\\' text-anchor=\\'middle\\' fill=\\'%2371717a\\' font-size=\\'10\\'>No Image</text></svg>'">
+              <img id="tw-item-img" class="tw-item-thumb" src="" alt="Thumbnail Produk">
             </div>
             <div class="tw-item-details">
               <div id="tw-item-title" class="tw-item-title">-</div>
@@ -2245,6 +2245,14 @@
         : (item.primaryImage || item.image ? [item.primaryImage || item.image] : []);
 
       if (imgEl) {
+        // รูปโหลดไม่ได้: ใส่รูปแทน (ห้ามใช้ onerror ใน HTML เพราะ CSP บล็อก inline handler)
+        if (!imgEl.dataset.fallback) {
+          imgEl.dataset.fallback = '1';
+          imgEl.addEventListener('error', () => {
+            if (imgEl.src.startsWith('data:')) return;
+            imgEl.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='72' height='72' fill='%23555'><rect width='100%' height='100%' fill='%2327272a'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' fill='%2371717a' font-size='10'>No Image</text></svg>";
+          });
+        }
         imgEl.src = imageUrls[0] || '';
       }
 

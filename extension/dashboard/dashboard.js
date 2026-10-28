@@ -168,6 +168,8 @@
     return parseInt(lower.replace(/[^0-9]/g, ''), 10) || 0;
   }
 
+  const NO_IMG_52 = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='52' height='52' fill='%23333'><rect width='100%' height='100%' fill='%231e293b'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' fill='%2364748b' font-size='9'>No Img</text></svg>";
+
   function escapeHtml(str) {
     if (!str) return '';
     return String(str)
@@ -263,7 +265,7 @@
         <tr data-id="${id}">
           <td style="text-align: center; color: var(--text-dim); font-weight: 700;">${idx + 1}</td>
           <td style="text-align: center;">
-            <img src="${imageUrl}" alt="Thumbnail" class="table-product-thumb" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'52\\' height=\\'52\\' fill=\\'%23333\\'><rect width=\\'100%\\' height=\\'100%\\' fill=\\'%231e293b\\'/><text x=\\'50%\\' y=\\'50%\\' dominant-baseline=\\'middle\\' text-anchor=\\'middle\\' fill=\\'%2364748b\\' font-size=\\'9\\'>No Img</text></svg>'">
+            <img src="${imageUrl}" alt="Thumbnail" class="table-product-thumb">
           </td>
           <td>
             <a href="${longLink}" target="_blank" class="table-product-title" title="${escapeHtml(title)}">${escapeHtml(title)}</a>
@@ -316,6 +318,8 @@
 
     // 2. Image Thumbnail Click (HD Preview Modal)
     document.querySelectorAll('.table-product-thumb').forEach(img => {
+      // รูปโหลดไม่ได้: ใส่รูปแทน (ห้ามใช้ onerror ใน HTML เพราะ CSP ของ extension บล็อก)
+      img.addEventListener('error', () => { img.src = NO_IMG_52; }, { once: true });
       img.onclick = () => {
         const src = img.src;
         if (src && !src.startsWith('data:')) {
