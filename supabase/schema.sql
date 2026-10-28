@@ -57,6 +57,8 @@ alter table public.hub_products add column if not exists images text[] not null 
 alter table public.hub_products add column if not exists description text not null default '';
 -- ข้อมูลอื่นจากหน้าสินค้า เช่น {brand, rating, rating_count, specs: {ชื่อ: ค่า}, detail_url, detail_at}
 alter table public.hub_products add column if not exists details jsonb not null default '{}';
+-- รีวิวที่เขียนแล้ว (AI ร่าง หรือสุ่มแบบป้ายยา แล้วแก้ในแผงแก้ไข) แสดงในกล่องรีวิวของ ads.js
+alter table public.hub_products add column if not exists review text not null default '';
 
 create unique index if not exists hub_products_source_key on public.hub_products (source, source_id) where source_id <> '';
 create unique index if not exists hub_products_link_key on public.hub_products (link) where source_id = '';
@@ -502,3 +504,32 @@ as $$
   group by e.product_id;
 $$;
 grant execute on function public.hub_product_stats(bigint[], integer) to authenticated;
+
+-- ==========================================
+-- เฟส 3.5: ข้อมูลรีวิว
+--   รูปทั้งหมด รายละเอียด และข้อมูลจำเพาะของสินค้าที่ขึ้นเว็บได้ สำหรับหน้ารีวิว (ads.js layout "review" หรือเรียกตรง)
+--   ใช้คู่กับ hub_ads: ได้รหัสสินค้าจาก hub_ads ก่อน แล้วขอข้อมูลเต็มของรหัสเหล่านั้น
+-- คืนค่า [{id, images, description, review, details: {brand, rating, rating_count, specs}}] ตามลำดับรหัสที่ขอ
+-- สินค้าที่หยุดแสดงแล้วจะไม่มีในผล (ตาม RLS) และไม่ส่งลิงก์หน้าสินค้าต้นทาง (detail_url) ออกไป
+-- ==========================================
+create or replace function public.hub_product_info(p_ids bigint[])
+returns jsonb
+language sql stable
+set search_path = public
+as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', hp.id,
+           'images', to_jsonb(case when cardinality(hp.images) > 0 then hp.images
+                                   when hp.image_url <> '' then array[hp.image_url] else '{}' end),
+           'description', hp.description,
+           'review', hp.review,
+           'details', jsonb_strip_nulls(jsonb_build_object(
+             'brand', hp.details -> 'brand', 'rating', hp.details -> 'rating',
+             'rating_count', hp.details -> 'rating_count', 'specs', hp.details -> 'specs')))
+         order by ids.o), '[]'::jsonb)
+  from unnest((coalesce(p_ids, '{}'))[1:24]) with ordinality as ids(id, o)
+  join hub_products hp on hp.id = ids.id
+  where hub_is_live(hp);
+$$;
+revoke all on function public.hub_product_info(bigint[]) from public;
+grant execute on function public.hub_product_info(bigint[]) to anon, authenticated;

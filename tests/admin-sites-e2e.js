@@ -44,7 +44,7 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", "
   await page.click("article[data-id='3']");
   const drawer = await page.textContent("#drawer");
   assert(drawer.includes("รหัส Ad Hub #3") && drawer.includes("คลิก 3 · แสดง 30"), drawer);
-  assert.equal(await page.textContent("[data-embed='product-3']"), '<div data-adhub="review" data-product="3"></div>');
+  assert.equal(await page.textContent("[data-embed='product-3']"), '<div data-adhub="review" data-product="3" data-layout="review"></div>');
   // ไม่มีรูปจากหน้าสินค้า: บอกวิธีดึง
   assert(drawer.includes("รูปทั้งหมดจากหน้าสินค้า (0)") && drawer.includes("เปิดหน้าสินค้า"), drawer);
   await page.click("#drawer header [data-act=close-drawer]");
@@ -62,6 +62,26 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", "
   await page.click("#drawer [data-act=save-drawer]");
   await page.waitForFunction(() => window.__fake.products[0].image_url.endsWith("g2.png"));
   assert.equal(await page.evaluate(() => window.__fake.products[0].description), "ผ้าทวิตหนา ใส่สบาย");
+
+  // ร่างรีวิว: สุ่มแบบป้ายยาจากข้อมูลจริง / AI / AI ใช้ไม่ได้ → สุ่มแทน แล้วบันทึก
+  await page.waitForTimeout(300);   // รอรายการโหลดใหม่หลังบันทึก
+  await page.click("article[data-id='1']");
+  await page.click("#drawer [data-act=spin-review]");
+  const spun = await page.inputValue("#drawer [data-d=review]");
+  assert(spun.includes("4.8/5") && spun.includes("฿99") && spun.includes("ผ้าทวิตหนา ใส่สบาย") && !/[{}]/.test(spun), spun);
+  await page.evaluate(() => { window.__fake.ai = "ok"; });
+  await page.fill("#drawer [data-d=note]", "พิมพ์ระหว่างรอ");
+  await page.click("#drawer [data-act=ai-review]");
+  await page.waitForFunction(() => document.querySelector("#drawer [data-d=review]").value === "รีวิว AI ของ #1");
+  assert.equal(await page.inputValue("#drawer [data-d=note]"), "พิมพ์ระหว่างรอ");
+  await page.evaluate(() => { window.__fake.ai = "quota"; });
+  await page.click("#drawer [data-act=ai-review]");
+  await page.waitForFunction(() => document.querySelector("#drawer [data-d=review]").value.includes("4.8/5"));
+  assert((await page.textContent("#toasts")).includes("โทเคนหมด จึงสุ่มแบบป้ายยาให้แทน"));
+  await page.fill("#drawer [data-d=review]", "รีวิวที่แก้แล้ว");
+  await page.click("#drawer [data-act=save-drawer]");
+  await page.waitForFunction(() => window.__fake.products[0].review === "รีวิวที่แก้แล้ว");
+  assert.equal(await page.evaluate(() => "_writing" in window.__fake.products[0]), false);
 
   // เปิดหน้าต่างเว็บ: เห็นเว็บเดิม จุดที่วาง ชื่อสินค้าที่ปักหมุด และโค้ดฝัง
   await page.click("[data-act=open-sites]");

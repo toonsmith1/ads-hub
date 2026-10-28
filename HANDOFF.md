@@ -32,8 +32,17 @@
     ถ้าผู้ใช้บอกว่าได้รูป/รายละเอียดไม่ครบ ให้ขอ HTML ของหน้าสินค้าจริง (Ctrl+S) มาปรับ `gallery()` / `section()`
   - ทดสอบ: `bash tests/db-test.sh` (รวมอัปเกรดจาก schema ที่ `03d6883`), `xvfb-run -a node tests/extension-e2e.js`, `node tests/admin-sites-e2e.js`
 
+- เฟส 3.5 ข้อมูลรีวิว + ตัวเขียนรีวิว (branch `claude/project-thread-qza8h4`)
+  - `supabase/schema.sql`: คอลัมน์ `hub_products.review` และ rpc `hub_product_info(p_ids)` (anon, เฉพาะสินค้าที่ขึ้นเว็บ ไม่ส่ง `detail_url`)
+  - `web/ads.js`: `load({full: true})`, `render(el, ads, {layout: "review"})`, `data-layout="review"` = กล่องรีวิว
+  - `web/review.html`: หน้ารีวิวตัวอย่าง `?site=&id=` + สินค้าที่คล้ายกัน
+  - `web/js/review-writer.js`: สุ่มรีวิวแบบป้ายยาจากข้อมูลจริง (spintax ของตัวเอง ไม่ได้ใช้ `extension/libs/spintax.js` เพราะเป็นแคปชันโพสต์)
+  - `supabase/functions/review/index.ts`: AI ร่างรีวิว (แอดมินเท่านั้น) Secrets `AI_PROVIDER` anthropic|openai, `AI_API_KEY`, `AI_MODEL`, `AI_BASE_URL`
+    error คืน `reason` no_key/quota/failed แล้วหน้าจัดการสุ่มแทน ยังไม่เคยเรียก API จริง (ไม่มีคีย์) ทดสอบด้วย fetch ปลอม
+  - ทดสอบ: `bash tests/db-test.sh`, `node tests/ads-e2e.js`, `node tests/admin-sites-e2e.js`, `node --experimental-strip-types tests/review-test.mjs`
+
 ## ยังไม่ได้ทำ
-- ผู้ใช้ยังไม่ได้ติดตั้งบน Supabase/Netlify ตาม README (รวมขั้นที่ 6-7 ของเฟส 3: Edge Function `go` และเพิ่มเว็บ)
+- ผู้ใช้ยังไม่ได้ติดตั้งบน Supabase/Netlify ตาม README (รวมขั้นที่ 6-7 ของเฟส 3: Edge Function `go` และเพิ่มเว็บ, ขั้น 8: ฟังก์ชัน `review` + คีย์ AI)
 - เปิดสวิตช์ Ad Hub ใน transfer หลังติดตั้งเสร็จ
 - เฟส 4: หน้าสถิติ, ตัวแต่งรูปโฆษณา, สุ่มข้อความ (spintax จาก `extension/libs/spintax.js`) ทั้งปุ่มสร้างแคปชันและข้อความโปรยบนการ์ด
 

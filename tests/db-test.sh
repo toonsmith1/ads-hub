@@ -30,6 +30,6 @@ fi
 # รันสองรอบ: ต้องรันซ้ำได้โดยไม่พัง
 "${PSQL[@]}" -f supabase/schema.sql >/dev/null
 "${PSQL[@]}" -f supabase/schema.sql >/dev/null
-"${PSQL[@]}" -c "do \$\$ begin assert (select images = '{}' and description = '' and details = '{}' from hub_products where id = 999) is not false; end \$\$; delete from hub_products where id = 999"
+"${PSQL[@]}" -c "do \$\$ begin assert (select images = '{}' and description = '' and details = '{}' and review = '' from hub_products where id = 999) is not false; end \$\$; delete from hub_products where id = 999"
 "${PSQL[@]}" -f tests/db-test.sql
 echo "db-test: ผ่านทั้งหมด"
