@@ -27,7 +27,7 @@
 - รูปทั้งหมดและรายละเอียดสำหรับรีวิว (branch `claude/project-thread-6jyqes`)
   - `hub_products` เพิ่ม `images text[]`, `description`, `details jsonb` (add column if not exists) และ `hub_import_products` รับค่าเหล่านี้
   - `extension/libs/product-detail-service.js`: เปิดหน้าสินค้าในแท็บเบื้องหลัง อ่าน JSON-LD / og: / แกลเลอรี / หัวข้อรายละเอียดและข้อมูลจำเพาะ
-    ถ้าหน้าที่เปิดไม่ใช่หน้าสินค้า ตามลิงก์ที่มีรหัสสินค้า สุดท้ายค่อยไปทางลิงก์ affiliate (ปิดได้ในแผง)
+    ถ้าหน้าที่เปิดไม่ใช่หน้าสินค้า ตามลิงก์ที่มีรหัสสินค้า ไม่เปิดลิงก์ affiliate เลย (ลิงก์ s.shopee / shope.ee / มีพารามิเตอร์ affiliate ถูกข้ามเสมอ)
   - ยังไม่เคยลองกับ Shopee จริง (เครื่องคลาวด์เข้า Shopee ไม่ได้) ทดสอบด้วยหน้าปลอมใน `tests/extension-e2e.js`
     ถ้าผู้ใช้บอกว่าได้รูป/รายละเอียดไม่ครบ ให้ขอ HTML ของหน้าสินค้าจริง (Ctrl+S) มาปรับ `gallery()` / `section()`
   - ทดสอบ: `bash tests/db-test.sh` (รวมอัปเกรดจาก schema ที่ `03d6883`), `xvfb-run -a node tests/extension-e2e.js`, `node tests/admin-sites-e2e.js`
