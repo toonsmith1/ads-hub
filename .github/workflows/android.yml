@@ -44,3 +44,13 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "แอปดูจำนวนคลิก (รุ่น ${GITHUB_RUN_NUMBER})" \
             --notes "build จาก ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7} โหลด adhub-clicks.apk ไปติดตั้งบนมือถือ Android"
+      # เก็บไฟล์ไว้ใน branch "clicks-app-apk" ด้วย (ทับของเดิม) ให้ดึงด้วย git ได้ เผื่อโหลดจากหน้า Releases บนมือถือไม่ได้
+      - name: Save APK to a branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          d=$(mktemp -d) && cp adhub-clicks.apk "$d/" && cd "$d"
+          git init -q -b clicks-app-apk && git add adhub-clicks.apk
+          git -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+            commit -q -m "adhub-clicks.apk รุ่น ${GITHUB_RUN_NUMBER} จาก ${GITHUB_SHA::7}"
+          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" clicks-app-apk
