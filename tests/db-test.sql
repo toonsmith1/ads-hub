@@ -144,3 +144,43 @@ begin
   assert (select count(*) from hub_placements) = 3;
 end $$;
 reset role;
+
+-- ---------- นำเข้ารูปทั้งหมดและรายละเอียดจากหน้าสินค้า ----------
+select setval('hub_products_id_seq', 1000) \g /dev/null
+set request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
+set role authenticated;
+do $$
+declare r jsonb; p hub_products;
+begin
+  r := hub_import_products('[{"title": "หูฟัง J", "link": "https://s.shopee.co.th/j", "source": "shopee", "source_id": "77",
+    "images": ["https://cdn.example/1.jpg", "javascript:alert(1)", "https://cdn.example/2.jpg", "https://cdn.example/1.jpg"],
+    "description": "  เสียงดี แบตอึด  ", "details": {"brand": "ABC", "rating": 4.8}}]');
+  assert r ->> 'added' = '1', format('ต้องเพิ่มได้ %s', r);
+  select * into p from hub_products where source_id = '77';
+  assert p.images = '{https://cdn.example/1.jpg,https://cdn.example/2.jpg}', format('รูปต้องเป็น http ไม่ซ้ำ ตามลำดับ ได้ %s', p.images);
+  assert p.image_url = 'https://cdn.example/1.jpg', 'ไม่มีรูปปกให้ใช้รูปแรก';
+  assert p.description = 'เสียงดี แบตอึด' and p.details ->> 'brand' = 'ABC';
+
+  -- ส่งซ้ำโดยไม่มีรายละเอียด (เช่นกดส่งแบบไม่เปิดหน้าสินค้า): ของเดิมต้องอยู่ครบ
+  r := hub_import_products('[{"title": "หูฟัง J", "link": "https://s.shopee.co.th/j", "source": "shopee", "source_id": "77", "price": "199"}]');
+  select * into p from hub_products where source_id = '77';
+  assert r ->> 'updated' = '1' and p.price = 199;
+  assert cardinality(p.images) = 2 and p.description = 'เสียงดี แบตอึด' and p.details ->> 'rating' = '4.8', 'ส่งว่างต้องไม่ลบของเดิม';
+
+  -- ส่งรายละเอียดใหม่: แทนรูปและคำอธิบาย รวม details
+  r := hub_import_products('[{"title": "หูฟัง J", "link": "https://s.shopee.co.th/j", "source": "shopee", "source_id": "77",
+    "images": ["https://cdn.example/3.jpg"], "description": "รุ่นใหม่", "details": {"rating": 4.9}}]');
+  select * into p from hub_products where source_id = '77';
+  assert p.images = '{https://cdn.example/3.jpg}' and p.description = 'รุ่นใหม่';
+  assert p.details = '{"brand": "ABC", "rating": 4.9}', format('details ต้องรวมกัน ได้ %s', p.details);
+  assert p.image_url = 'https://cdn.example/1.jpg', 'รูปปกเดิมต้องไม่ถูกแทน';
+end $$;
+reset role;
+
+-- คนทั่วไปอ่านรูปและรายละเอียดของสินค้าที่ขึ้นเว็บได้ (สำหรับหน้ารีวิว)
+update hub_products set status = 'active' where source_id = '77';
+set role anon;
+do $$ begin
+  assert (select cardinality(images) from hub_products where source_id = '77') = 1;
+end $$;
+reset role;
