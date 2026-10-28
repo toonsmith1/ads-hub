@@ -599,3 +599,76 @@ end;
 $$;
 revoke all on function public.hub_save_ai_settings(jsonb) from public;
 grant execute on function public.hub_save_ai_settings(jsonb) to authenticated;
+
+-- ==========================================
+-- แดชบอร์ดสถิติ (ปุ่ม "สถิติ" ในหน้าจัดการ) แอดมินเท่านั้น ตาม RLS ของ hub_events
+--   p_days = จำนวนวันย้อนหลัง, null หรือ 0 = ทั้งหมด  นับวันตามเวลาไทย
+-- คืนค่า {from, unit: day|month, totals, prev (ช่วงก่อนหน้าที่ยาวเท่ากัน), series, top, placements}
+-- ==========================================
+create index if not exists hub_events_site_idx on public.hub_events (site_id, placement, event_at desc);
+
+create or replace function public.hub_dashboard(p_days integer default 30)
+returns jsonb
+language plpgsql stable security invoker
+set search_path = public
+as $$
+declare
+  v_days int := case when coalesce(p_days, 0) <= 0 then null else least(p_days, 3650) end;
+  v_today date := (now() at time zone 'Asia/Bangkok')::date;
+  v_from date;
+  v_unit text;
+  v_start timestamptz;
+  v_prev timestamptz;
+  r jsonb;
+begin
+  if v_days is null then
+    v_from := coalesce((select min(event_at at time zone 'Asia/Bangkok')::date from hub_events), v_today);
+  else
+    v_from := v_today - (v_days - 1);
+  end if;
+  v_unit := case when v_today - v_from >= 92 then 'month' else 'day' end;
+  if v_unit = 'month' then v_from := date_trunc('month', v_from)::date; end if;
+  v_start := v_from::timestamp at time zone 'Asia/Bangkok';
+  v_prev := v_start - (v_today - v_from + 1) * interval '1 day';
+
+  with ev as (
+    select e.event, e.product_id, e.site_id, e.placement,
+           date_trunc(v_unit, e.event_at at time zone 'Asia/Bangkok')::date as bucket
+    from hub_events e where e.event_at >= v_start
+  ),
+  buckets as (
+    select g::date as bucket from generate_series(v_from, v_today, ('1 ' || v_unit)::interval) g
+  ),
+  top as (
+    select ev.product_id, count(*) filter (where event = 'view') as views, count(*) filter (where event = 'click') as clicks
+    from ev group by ev.product_id
+    order by clicks desc, views desc, ev.product_id limit 20
+  ),
+  pl as (
+    select ev.site_id, ev.placement, count(*) filter (where event = 'view') as views, count(*) filter (where event = 'click') as clicks
+    from ev group by ev.site_id, ev.placement
+  )
+  select jsonb_build_object(
+    'from', v_from, 'to', v_today, 'unit', v_unit,
+    'totals', (select jsonb_build_object('views', count(*) filter (where event = 'view'), 'clicks', count(*) filter (where event = 'click'),
+                                         'products', count(distinct product_id)) from ev),
+    'prev', case when v_days is null then null else
+              (select jsonb_build_object('views', count(*) filter (where event = 'view'), 'clicks', count(*) filter (where event = 'click'))
+               from hub_events e where e.event_at >= v_prev and e.event_at < v_start) end,
+    'series', (select coalesce(jsonb_agg(jsonb_build_object('t', b.bucket, 'views', coalesce(c.views, 0), 'clicks', coalesce(c.clicks, 0))
+                 order by b.bucket), '[]')
+               from buckets b left join (select bucket, count(*) filter (where event = 'view') as views,
+                                                count(*) filter (where event = 'click') as clicks
+                                         from ev group by bucket) c using (bucket)),
+    'top', (select coalesce(jsonb_agg(jsonb_build_object('id', t.product_id, 'title', hp.title, 'image_url', hp.image_url,
+                 'status', hp.status, 'source', hp.source, 'views', t.views, 'clicks', t.clicks) order by t.clicks desc, t.views desc, t.product_id), '[]')
+            from top t join hub_products hp on hp.id = t.product_id),
+    'placements', (select coalesce(jsonb_agg(jsonb_build_object('site', coalesce(s.name, ''), 'site_key', coalesce(s.key, ''),
+                 'placement', pl.placement, 'views', pl.views, 'clicks', pl.clicks) order by pl.clicks desc, pl.views desc), '[]')
+            from pl left join hub_sites s on s.id = pl.site_id)
+  ) into r;
+  return r;
+end;
+$$;
+revoke all on function public.hub_dashboard(integer) from public;
+grant execute on function public.hub_dashboard(integer) to authenticated;

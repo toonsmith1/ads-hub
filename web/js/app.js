@@ -29,8 +29,9 @@ const state = {
   selected: new Set(),
   view: localGet("hub.view") || "grid",
   drawer: null,   // สินค้าที่กำลังแก้ (สำเนา)
-  modal: null,    // "import" | "categories" | "sites" | "ai"
+  modal: null,    // "import" | "categories" | "sites" | "ai" | "stats"
   ai: null,       // ฟอร์มตั้งค่า AI (โหลดตอนเปิดหน้าต่าง)
+  dash: null,     // แดชบอร์ดสถิติ {days, data}
   importer: null,
   stats: {},      // { [product_id]: {views, clicks} } ของสินค้าในหน้านี้ ย้อนหลัง STATS_DAYS วัน
   sites: null,    // เว็บที่แสดงโฆษณา พร้อม hub_placements (โหลดตอนเปิดหน้าต่าง)
@@ -138,6 +139,7 @@ function renderShell() {
           <svg class="absolute left-3 top-2.5 w-4 h-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 3.4 9.83l3.64 3.63a.75.75 0 1 0 1.06-1.06l-3.63-3.64A5.5 5.5 0 0 0 9 3.5ZM5 9a4 4 0 1 1 8 0 4 4 0 0 1-8 0Z" clip-rule="evenodd"/></svg>
           <input id="search" type="search" placeholder="ค้นหาชื่อสินค้า ร้าน หรือโน้ต  ( / )" class="${INPUT} w-full pl-9 h-10" autocomplete="off">
         </div>
+        <button data-act="open-stats" class="${BTN} h-10 shrink-0">สถิติ</button>
         <button data-act="open-sites" class="${BTN} h-10 shrink-0">เว็บที่แสดงโฆษณา</button>
         <button data-act="open-ai" class="${BTN} h-10 shrink-0">ตั้งค่า AI</button>
         <button data-act="new-product" class="${BTN} h-10 shrink-0">+ เพิ่มสินค้าเอง</button>
@@ -624,6 +626,7 @@ function closeModal() {
   state.modal = null;
   state.importer = null;
   state.ai = null;
+  state.dash = null;
   renderModal();
 }
 
@@ -786,12 +789,111 @@ function renderModal() {
   if (!el) return;
   if (!state.modal) { el.innerHTML = ""; return; }
   const inner = state.modal === "import" ? importModalHtml() : state.modal === "sites" ? sitesModalHtml()
-    : state.modal === "ai" ? aiModalHtml() : categoriesModalHtml();
+    : state.modal === "ai" ? aiModalHtml() : state.modal === "stats" ? statsModalHtml() : categoriesModalHtml();
   el.innerHTML = `
     <div class="fixed inset-0 z-[60] grid place-items-center p-4">
       <div data-act="close-modal" class="absolute inset-0 bg-slate-900/40"></div>
-      <div class="relative w-full ${{ import: "max-w-3xl", ai: "max-w-xl" }[state.modal] || "max-w-4xl"} max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl p-6">${inner}</div>
+      <div class="relative w-full ${{ import: "max-w-3xl", ai: "max-w-xl", stats: "max-w-5xl" }[state.modal] || "max-w-4xl"} max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl p-6">${inner}</div>
     </div>`;
+}
+
+// ---------- แดชบอร์ดสถิติ ----------
+const DASH_RANGES = [[7, "7 วัน"], [30, "30 วัน"], [90, "90 วัน"], [365, "1 ปี"], [0, "ทั้งหมด"]];
+const ctr = (v, c) => (v ? `${(c / v * 100).toLocaleString("th-TH", { maximumFractionDigits: 1 })}%` : "-");
+
+async function openStats(days) {
+  if (days === undefined) days = Number(localGet("hub.dashDays") ?? 30);
+  if (!DASH_RANGES.some(([d]) => d === days)) days = 30;
+  localSet("hub.dashDays", String(days));
+  state.modal = "stats";
+  state.dash = { days, data: state.dash?.days === days ? state.dash.data : null };
+  renderModal();
+  const data = await guard(() => HubAPI.dashboard(days));
+  if (state.modal !== "stats" || state.dash?.days !== days) return;
+  state.dash.data = data || { totals: { views: 0, clicks: 0, products: 0 }, series: [], top: [], placements: [] };
+  renderModal();
+}
+
+function trend(now, before) {
+  if (before == null) return "";
+  if (!before) return now ? `<span class="text-emerald-600">ใหม่</span>` : "";
+  const pct = Math.round((now - before) / before * 100);
+  const cls = pct > 0 ? "text-emerald-600" : pct < 0 ? "text-rose-600" : "text-slate-400";
+  return `<span class="${cls}">${pct > 0 ? "+" : ""}${pct}%</span> <span class="text-slate-400">จากช่วงก่อน</span>`;
+}
+
+// กราฟแท่งแบบ SVG ไม่ต้องใช้ไลบรารี (ชี้ที่แท่งเพื่อดูตัวเลข)
+function barChart(series, key, color, unit) {
+  const W = 760, H = 120, n = series.length || 1;
+  const max = Math.max(1, ...series.map(s => Number(s[key])));
+  const bw = W / n;
+  const label = (t) => new Date(`${t}T00:00:00`).toLocaleDateString("th-TH", unit === "month" ? { month: "short", year: "2-digit" } : { day: "numeric", month: "short" });
+  const bars = series.map((s, i) => {
+    const h = Number(s[key]) / max * (H - 4);
+    return `<rect x="${(i * bw + bw * 0.15).toFixed(1)}" y="${(H - h).toFixed(1)}" width="${(bw * 0.7).toFixed(1)}" height="${Math.max(h, Number(s[key]) ? 1.5 : 0).toFixed(1)}" rx="2" fill="${color}"><title>${label(s.t)}: ${fmtNum(s[key])}</title></rect>`;
+  }).join("");
+  const step = Math.ceil(n / 5);
+  // วันแรกชิดซ้าย วันสุดท้ายชิดขวา ป้ายไม่ล้นออกนอกกราฟ
+  const ticks = series.map((s, i) => (i % step === 0 || i === n - 1) && (i === n - 1 || n - 1 - i >= step)
+    ? `<span class="absolute whitespace-nowrap" style="${i === 0 ? "left:0" : i === n - 1 ? "right:0" : `left:${((i + 0.5) / n * 100).toFixed(2)}%;transform:translateX(-50%)`}">${label(s.t)}</span>` : "").join("");
+  return `<div class="relative">
+      <div class="absolute right-0 -top-5 text-[11px] text-slate-400">สูงสุด ${fmtNum(max)}</div>
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="w-full h-28 block border-b border-slate-200">${bars}</svg>
+      <div class="relative h-5 mt-1 text-[11px] text-slate-400">${ticks}</div>
+    </div>`;
+}
+
+function statsModalHtml() {
+  const { days, data: d } = state.dash;
+  const tabs = DASH_RANGES.map(([v, l]) => `<button data-act="stats-range" data-v="${v}" class="h-8 px-3 rounded-md text-sm whitespace-nowrap ${v === days ? "bg-white shadow-sm font-semibold text-slate-900" : "text-slate-500 hover:text-slate-800"}">${l}</button>`).join("");
+  const head = `<div class="flex flex-wrap items-center justify-between gap-3">
+      <h2 class="text-lg font-semibold">สถิติการแสดงและคลิก</h2>
+      <div class="flex gap-1 p-1 rounded-lg bg-slate-100 max-w-full overflow-x-auto">${tabs}</div>
+    </div>`;
+  if (!d) return `${head}<div class="py-16 text-center text-sm text-slate-400">กำลังโหลด…</div>`;
+  const t = d.totals, p = d.prev;
+  const tile = (label, value, sub) => `<div class="rounded-xl border border-slate-200 p-4">
+      <div class="text-xs text-slate-500">${label}</div>
+      <div class="mt-1 text-2xl font-semibold tabular-nums">${value}</div>
+      <div class="mt-1 text-xs min-h-[1rem]">${sub}</div></div>`;
+  const range = d.from ? `${new Date(`${d.from}T00:00:00`).toLocaleDateString("th-TH", { dateStyle: "medium" })} – ${new Date(`${d.to}T00:00:00`).toLocaleDateString("th-TH", { dateStyle: "medium" })}` : "";
+  const empty = !t.views && !t.clicks;
+  const th = "py-2 px-3 font-medium";
+  const num = "py-2 px-3 text-right tabular-nums whitespace-nowrap";
+  const topRows = d.top.map((r, i) => `<tr class="border-t border-slate-100">
+      <td class="py-2 px-3 text-slate-400 tabular-nums">${i + 1}</td>
+      <td class="py-2 px-3"><div class="flex items-center gap-2 min-w-0">
+        ${r.image_url ? `<img src="${esc(r.image_url)}" alt="" class="w-9 h-9 rounded object-cover shrink-0 bg-slate-100" loading="lazy">` : `<div class="w-9 h-9 rounded bg-slate-100 shrink-0"></div>`}
+        <div class="min-w-0"><div class="truncate max-w-[22rem]" title="${esc(r.title)}">${esc(r.title)}</div>
+        <div class="text-[11px] text-slate-400">#${r.id}${r.source ? ` · ${esc(r.source)}` : ""}${STATUS[r.status] && r.status !== "active" ? ` · ${STATUS[r.status].label}` : ""}</div></div></div></td>
+      <td class="${num}">${fmtNum(r.views)}</td><td class="${num} font-semibold">${fmtNum(r.clicks)}</td><td class="${num} text-slate-500">${ctr(r.views, r.clicks)}</td>
+    </tr>`).join("");
+  const plRows = d.placements.map(r => `<tr class="border-t border-slate-100">
+      <td class="py-2 px-3">${r.site ? esc(r.site) : `<span class="text-slate-400">ไม่ระบุเว็บ (ลิงก์ /go/ ตรง)</span>`}</td>
+      <td class="py-2 px-3 text-slate-500">${esc(r.placement || "-")}</td>
+      <td class="${num}">${fmtNum(r.views)}</td><td class="${num} font-semibold">${fmtNum(r.clicks)}</td><td class="${num} text-slate-500">${ctr(r.views, r.clicks)}</td>
+    </tr>`).join("");
+  const table = (cols, rows) => `<div class="mt-2 overflow-x-auto rounded-xl border border-slate-200"><table class="w-full text-sm">
+      <thead class="bg-slate-50 text-slate-500 text-xs"><tr>${cols}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  const nums = `<th class="${th} text-right">แสดง</th><th class="${th} text-right">คลิก</th><th class="${th} text-right">อัตราคลิก</th>`;
+  return `${head}
+    <p class="mt-1 text-xs text-slate-400">${range} (เวลาไทย) ข้อมูลเก็บไว้ทั้งหมด ไม่ถูกลบ</p>
+    <div class="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+      ${tile("การแสดง", fmtNum(t.views), trend(t.views, p?.views))}
+      ${tile("คลิก", fmtNum(t.clicks), trend(t.clicks, p?.clicks))}
+      ${tile("อัตราคลิก (CTR)", ctr(t.views, t.clicks), `<span class="text-slate-400">คลิก ÷ การแสดง</span>`)}
+      ${tile("สินค้าที่มีคนเห็น/คลิก", fmtNum(t.products), "")}
+    </div>
+    ${empty ? `<div class="mt-6 rounded-xl border border-dashed border-slate-300 py-10 text-center text-sm text-slate-500">ยังไม่มีคนเห็นหรือกดโฆษณาในช่วงนี้<br><span class="text-xs text-slate-400">ยอดจะขึ้นเมื่อมีคนเปิดหน้าเว็บที่ฝังโค้ด หรือกดลิงก์ /go/</span></div>` : `
+    <div class="mt-6 grid md:grid-cols-2 gap-6">
+      <div><div class="text-sm font-medium mb-6">คลิก${d.unit === "month" ? "รายเดือน" : "รายวัน"}</div>${barChart(d.series, "clicks", "#3b6ef6", d.unit)}</div>
+      <div><div class="text-sm font-medium mb-6">การแสดง${d.unit === "month" ? "รายเดือน" : "รายวัน"}</div>${barChart(d.series, "views", "#94a3b8", d.unit)}</div>
+    </div>
+    <h3 class="mt-6 text-sm font-semibold">สินค้าที่คลิกมากที่สุด</h3>
+    ${table(`<th class="${th} text-left w-8">#</th><th class="${th} text-left">สินค้า</th>${nums}`, topRows)}
+    <h3 class="mt-6 text-sm font-semibold">แยกตามเว็บและจุดที่วาง</h3>
+    ${table(`<th class="${th} text-left">เว็บ</th><th class="${th} text-left">จุดที่วาง</th>${nums}`, plRows)}`}
+    <div class="mt-5 flex justify-end"><button data-act="close-modal" class="${BTN} h-9">ปิด</button></div>`;
 }
 
 // ---------- ตั้งค่า AI ----------
@@ -808,6 +910,7 @@ const AI_PRESETS = {
 async function openAi() {
   state.modal = "ai";
   state.ai = null;
+  state.dash = null;
   renderModal();
   const s = await guard(() => HubAPI.aiSettings());
   if (state.modal !== "ai") return;
@@ -1077,6 +1180,8 @@ async function onClick(e) {
     case "delete-cat": deleteCat(Number(el.dataset.id)); break;
     case "open-sites": openSites(); break;
     case "open-ai": openAi(); break;
+    case "open-stats": openStats(); break;
+    case "stats-range": openStats(Number(v)); break;
     case "ai-save": saveAi(false); break;
     case "ai-clear": saveAi(true); break;
     case "save-site": saveSite(el); break;

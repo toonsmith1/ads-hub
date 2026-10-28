@@ -104,6 +104,10 @@
       const rows = must(await client.rpc("hub_product_stats", { p_ids: ids, p_days: days }));
       return Object.fromEntries((rows || []).map(r => [r.product_id, { views: Number(r.views), clicks: Number(r.clicks) }]));
     },
+    // แดชบอร์ดสถิติ: days = 0 คือทั้งหมด
+    async dashboard(days) {
+      return must(await client.rpc("hub_dashboard", { p_days: days }));
+    },
     // ร่างรีวิวด้วย AI (Edge Function "review") → {text, model} หรือ {error, reason: no_key | quota | failed}
     async writeReview(id) {
       const { data, error } = await client.functions.invoke("review", { body: { id } });

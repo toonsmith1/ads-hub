@@ -128,6 +128,26 @@
       const mode = window.__fake.ai || "no_key";
       return delay(mode === "ok" ? { text: `รีวิว AI ของ #${id}`, model: "fake-model" } : { error: "โทเคนหมด", reason: mode });
     },
+    dashboard(days) {
+      window.__fake.calls.push({ dashboard: days });
+      const n = days || 14, unit = days && days < 92 ? "day" : "month";
+      const series = Array.from({ length: n }, (_, i) => {
+        const d = new Date(2026, unit === "day" ? 9 : i, unit === "day" ? 28 - (n - 1 - i) : 1);
+        return { t: d.toISOString().slice(0, 10), views: 50 + ((i * 37) % 90), clicks: (i * 7) % 13 };
+      });
+      const sum = (k) => series.reduce((a, s) => a + s[k], 0);
+      return delay({
+        from: series[0].t, to: series.at(-1).t, unit,
+        totals: { views: sum("views"), clicks: sum("clicks"), products: 12 },
+        prev: days ? { views: Math.round(sum("views") * 0.8), clicks: sum("clicks") + 3 } : null,
+        series,
+        top: products.slice(0, 5).map((p, i) => ({ id: p.id, title: p.title, image_url: p.image_url, status: p.status, source: p.source, views: 300 - i * 40, clicks: 30 - i * 5 })),
+        placements: [
+          { site: "ย้ายราชการ", site_key: "transfer", placement: "feed", views: 900, clicks: 41 },
+          { site: "", site_key: "", placement: "", views: 0, clicks: 12 },
+        ],
+      });
+    },
     // เหมือน hub_ai_settings / hub_save_ai_settings: ไม่ส่งคีย์กลับ เว้นว่าง = ใช้คีย์เดิม
     aiSettings() {
       const { api_key, ...v } = window.__fake.aiSettings || {};
