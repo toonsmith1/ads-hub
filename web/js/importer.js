@@ -53,6 +53,8 @@ const HubImport = (() => {
 
   // ชื่อเว็บจากลิงก์ใดก็ได้: s.shopee.co.th → shopee, www.lazada.com → lazada
   function siteName(url) {
+    // ลิงก์ติดตามของเครือข่าย affiliate ใช้ชื่อเครือข่าย ไม่ใช่ชื่อโดเมนสั้น
+    if (/(^|\.)(accesstrade\.|atth\.)/i.test(host(url))) return "accesstrade";
     const labels = host(url).split(".").filter(Boolean);
     if (!labels.length || /^[\d.]+$/.test(labels.join("."))) return "";
     labels.pop();

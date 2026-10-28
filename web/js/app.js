@@ -8,6 +8,9 @@ const STATUS = {
   paused: { label: "พักไว้", dot: "bg-slate-400", pill: "bg-slate-100 text-slate-600 ring-slate-200" },
   expired: { label: "หมดอายุ", dot: "bg-rose-400", pill: "bg-rose-50 text-rose-700 ring-rose-200" },
 };
+// การแสดงโฆษณาของทั้งหมวด (hub_categories.ad_level) หมวดย่อยทำตามหมวดหลักถ้าหมวดหลักต่ำกว่า
+const AD_LEVELS = [[2, "ปกติ"], [1, "แสดงน้อย"], [0, "ปิด"]];
+const catLevel = (c) => (c && c.ad_level != null ? Number(c.ad_level) : 2);
 const SORTS = [
   ["updated", "แก้ไขล่าสุด"], ["created", "เพิ่มล่าสุด"], ["commission", "ค่าคอมสูงสุด"],
   ["priceAsc", "ราคาต่ำไปสูง"], ["priceDesc", "ราคาสูงไปต่ำ"], ["title", "ชื่อ ก-ฮ"],
@@ -29,7 +32,10 @@ const state = {
   selected: new Set(),
   view: localGet("hub.view") || "grid",
   drawer: null,   // สินค้าที่กำลังแก้ (สำเนา)
-  modal: null,    // "import" | "categories" | "sites"
+  modal: null,    // "import" | "categories" | "sites" | "ai"
+  ai: null,       // ฟอร์มตั้งค่า AI (โหลดตอนเปิดหน้าต่าง)
+  route: "products",   // หน้าที่เปิดอยู่: products | stats (#stats)
+  dash: null,     // หน้าสถิติ {days, data}
   importer: null,
   stats: {},      // { [product_id]: {views, clicks} } ของสินค้าในหน้านี้ ย้อนหลัง STATS_DAYS วัน
   sites: null,    // เว็บที่แสดงโฆษณา พร้อม hub_placements (โหลดตอนเปิดหน้าต่าง)
@@ -133,29 +139,34 @@ function renderShell() {
     <header class="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200">
       <div class="h-16 px-4 lg:px-6 flex items-center gap-4">
         <div class="flex items-center gap-2 shrink-0">${logo()}<span class="font-semibold hidden sm:inline">Ad Hub</span></div>
+        <nav id="nav" class="flex gap-1 p-1 rounded-lg bg-slate-100 shrink-0"></nav>
         <div class="relative flex-1 max-w-2xl">
           <svg class="absolute left-3 top-2.5 w-4 h-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 3.4 9.83l3.64 3.63a.75.75 0 1 0 1.06-1.06l-3.63-3.64A5.5 5.5 0 0 0 9 3.5ZM5 9a4 4 0 1 1 8 0 4 4 0 0 1-8 0Z" clip-rule="evenodd"/></svg>
           <input id="search" type="search" placeholder="ค้นหาชื่อสินค้า ร้าน หรือโน้ต  ( / )" class="${INPUT} w-full pl-9 h-10" autocomplete="off">
         </div>
         <button data-act="open-sites" class="${BTN} h-10 shrink-0">เว็บที่แสดงโฆษณา</button>
+        <button data-act="open-ai" class="${BTN} h-10 shrink-0">ตั้งค่า AI</button>
+        <button data-act="new-product" class="${BTN} h-10 shrink-0">+ เพิ่มสินค้าเอง</button>
         <button data-act="open-import" class="${BTN_PRIMARY} h-10 shrink-0">+ นำเข้าสินค้า</button>
         <button data-act="signout" class="${BTN} h-10 shrink-0 hidden md:inline-flex">ออกจากระบบ</button>
       </div>
     </header>
-    <div class="flex">
+    <div id="statsPage" hidden><div id="statsBody" class="px-4 lg:px-6 py-5 max-w-6xl mx-auto"></div></div>
+    <div id="productsPage"><div class="flex">
       <aside id="sidebar" class="hidden lg:block w-64 shrink-0 border-r border-slate-200 bg-white min-h-[calc(100vh-4rem)] sticky top-16 self-start max-h-[calc(100vh-4rem)] overflow-y-auto"></aside>
       <main class="flex-1 min-w-0 px-4 lg:px-6 py-5">
         <div id="filters"></div>
         <div id="results" class="mt-4"></div>
       </main>
-    </div>
+    </div></div>
     <div id="bulkbar"></div>
     <div id="drawer"></div>
     <div id="modal"></div>`;
 
   const search = $("#search");
   const onSearch = debounce(() => { state.f.q = search.value; state.page = 1; refresh(); }, 250);
-  search.oninput = onSearch;
+  search.oninput = () => { if (state.route !== "products") location.hash = ""; onSearch(); };
+  window.onhashchange = applyRoute;
   document.addEventListener("keydown", (e) => {
     if (e.key === "/" && !/input|textarea|select/i.test(document.activeElement?.tagName || "")) { e.preventDefault(); search.focus(); }
     if (e.key === "Escape") { if (state.modal) closeModal(); else if (state.drawer) closeDrawer(); }
@@ -163,6 +174,18 @@ function renderShell() {
   $("#app").onclick = onClick;
   $("#app").onchange = onChange;
   renderFilters();
+  applyRoute();
+}
+
+// ---------- หน้า: สินค้า (ค่าเริ่มต้น) / สถิติ (#stats) ----------
+function applyRoute() {
+  state.route = location.hash === "#stats" ? "stats" : "products";
+  $("#nav").innerHTML = [["products", "#", "สินค้า"], ["stats", "#stats", "สถิติ"]].map(([k, href, l]) =>
+    `<a href="${href}" class="h-8 px-3 inline-flex items-center rounded-md text-sm whitespace-nowrap ${k === state.route ? "bg-white shadow-sm font-semibold text-slate-900" : "text-slate-500 hover:text-slate-800"}">${l}</a>`).join("");
+  $("#productsPage").hidden = state.route !== "products";
+  $("#statsPage").hidden = state.route !== "stats";
+  renderBulkbar();
+  if (state.route === "stats") { closeDrawer(); loadDash(); }
 }
 
 // ---------- โหลดข้อมูล ----------
@@ -240,7 +263,7 @@ function renderSidebar() {
     const n = catCount(c.id) + kids.reduce((s, k) => s + catCount(k.id), 0);
     const on = String(state.f.cat) === String(c.id);
     return `<button data-act="cat" data-v="${c.id}" class="w-full flex items-center gap-2 h-8 pr-3 rounded-lg text-sm ${on ? "bg-brand-50 text-brand-700 font-semibold" : "text-slate-600 hover:bg-slate-50"}" style="padding-left:${12 + depth * 16}px">
-        <span class="flex-1 text-left truncate">${esc(c.name)}</span><span class="text-xs ${on ? "text-brand-600" : "text-slate-400"}">${fmtNum(n)}</span></button>`
+        <span class="flex-1 text-left truncate">${esc(c.name)}</span>${levelBadge(c)}<span class="text-xs ${on ? "text-brand-600" : "text-slate-400"}">${fmtNum(n)}</span></button>`
       + kids.map(k => catItem(k, depth + 1)).join("");
   };
   const roots = state.cats.filter(c => !c.parent_id || !catById(c.parent_id));
@@ -261,6 +284,41 @@ function renderSidebar() {
     </div>`;
 }
 
+function levelBadge(c) {
+  const lv = catLevel(c);
+  if (lv === 2) return "";
+  return `<span class="shrink-0 px-1.5 rounded text-[10px] font-medium ${lv ? "bg-amber-50 text-amber-700" : "bg-slate-200 text-slate-600"}" title="การแสดงโฆษณาของหมวดนี้">${lv ? "น้อย" : "ปิด"}</span>`;
+}
+
+// เลือกหมวดอยู่: ปรับการแสดงโฆษณาของทั้งหมวดได้ทันที
+function catLevelBar() {
+  const c = /^\d+$/.test(String(state.f.cat)) ? catById(Number(state.f.cat)) : null;
+  if (!c) return "";
+  const lv = catLevel(c);
+  const parent = c.parent_id ? catById(c.parent_id) : null;
+  const note = parent && catLevel(parent) < lv
+    ? `หมวดหลัก "${esc(parent.name)}" ตั้งเป็น "${AD_LEVELS.find(([v]) => v === catLevel(parent))[1]}" หมวดนี้จึงทำตามนั้น`
+    : lv === 0 ? "สินค้าในหมวดนี้จะไม่ถูกสุ่มขึ้นเว็บ (ที่ปักหมุดหรือฝังด้วยรหัสสินค้ายังแสดง)"
+    : lv === 1 ? "สินค้าในหมวดนี้มีโอกาสถูกสุ่มขึ้นเว็บน้อยลง (ราว 1 ใน 5 ของปกติ)" : "";
+  return `<div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+      <span class="text-slate-600">การแสดงโฆษณาของหมวด <b>${esc(c.name)}</b>${c.parent_id ? "" : " และหมวดย่อย"}</span>
+      <div class="inline-flex rounded-lg border border-slate-300 bg-white p-0.5">
+        ${AD_LEVELS.map(([v, l]) => `<button data-act="cat-level" data-id="${c.id}" data-v="${v}" class="h-7 px-3 rounded-md text-sm ${lv === v ? (v === 0 ? "bg-slate-700 text-white" : v === 1 ? "bg-amber-500 text-white" : "bg-emerald-600 text-white") : "text-slate-600 hover:bg-slate-50"}">${l}</button>`).join("")}
+      </div>
+      ${note ? `<span class="text-xs text-slate-400">${note}</span>` : ""}
+    </div>`;
+}
+
+async function setCatLevel(id, level) {
+  const c = catById(id);
+  if (!c || catLevel(c) === level) return;
+  const label = AD_LEVELS.find(([v]) => v === level)[1];
+  if (await guard(() => HubAPI.saveCategory({ ...c, ad_level: level }), `หมวด "${c.name}": ${label}`)) {
+    await loadCats();
+    renderFilters();
+  }
+}
+
 // ---------- แถวตัวกรอง ----------
 function renderFilters() {
   const el = $("#filters");
@@ -268,7 +326,7 @@ function renderFilters() {
   const f = state.f;
   const catOptions = [`<option value="all">ทุกหมวด</option>`, `<option value="none" ${f.cat === "none" ? "selected" : ""}>ยังไม่มีหมวด</option>`]
     .concat(state.cats.map(c => `<option value="${c.id}" ${String(f.cat) === String(c.id) ? "selected" : ""}>${c.parent_id ? "— " : ""}${esc(c.name)}</option>`)).join("");
-  el.innerHTML = `
+  el.innerHTML = `${catLevelBar()}
     <div class="flex flex-wrap items-center gap-2">
       <select data-f="cat" class="${INPUT} lg:hidden">${catOptions}</select>
       <select data-f="status" class="${INPUT} lg:hidden">
@@ -388,9 +446,9 @@ function renderBulkbar() {
   const el = $("#bulkbar");
   if (!el) return;
   const n = state.selected.size;
-  if (!n) { el.innerHTML = ""; return; }
+  if (!n || state.route === "stats") { el.innerHTML = ""; return; }
   el.innerHTML = `
-    <div class="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-4xl">
+    <div class="fixed bottom-20 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-4xl">
       <div class="flex flex-wrap items-center gap-2 px-4 py-3 rounded-2xl bg-slate-900 text-white shadow-2xl">
         <span class="text-sm font-semibold mr-1">เลือก ${fmtNum(n)} รายการ</span>
         <select data-bulk="category" class="h-9 px-2 rounded-lg bg-slate-800 border border-slate-700 text-sm">
@@ -416,7 +474,8 @@ async function bulkUpdate(patch, label) {
 
 // ---------- แผงแก้ไขสินค้า ----------
 function openDrawer(id) {
-  const p = id === "new" ? { title: "", link: "", status: "pending", weight: 1, tags: [] } : state.rows.find(r => r.id === id);
+  // เพิ่มเอง (เช่นลิงก์จาก AccessTrade): แอดมินเลือกมาแล้ว จึงเริ่มเป็น "กำลังแสดง"
+  const p = id === "new" ? { title: "", link: "", status: "active", weight: 1, tags: [] } : state.rows.find(r => r.id === id);
   if (!p) return;
   state.drawer = { ...p, tags: [...(p.tags || [])] };
   renderDrawer();
@@ -484,7 +543,8 @@ function renderDrawer() {
           </div>` : ""}
           ${p.id ? `<div class="text-[11px] text-slate-400">รหัส Ad Hub #${p.id} (ใช้ปักหมุด) · แหล่ง ${esc(p.source || "-")}${p.source_id ? ` · รหัส ${esc(p.source_id)}` : ""} · เพิ่มเมื่อ ${p.created_at ? new Date(p.created_at).toLocaleString("th-TH") : "-"}</div>` : ""}
         </div>
-        <footer class="px-5 py-3 border-t border-slate-200 flex items-center gap-2">
+        <!-- เว้นด้านล่างให้พ้นป้าย "Powered by Netlify" ที่ลอยอยู่มุมขวาล่าง -->
+        <footer class="px-5 pt-3 pb-20 border-t border-slate-200 flex items-center gap-2">
           ${p.id ? `<button data-act="delete-one" class="${BTN_DANGER} h-9">ลบ</button>` : ""}
           <div class="flex-1"></div>
           <button data-act="close-drawer" class="${BTN} h-9">ยกเลิก</button>
@@ -618,6 +678,7 @@ function openImport() {
 function closeModal() {
   state.modal = null;
   state.importer = null;
+  state.ai = null;
   renderModal();
 }
 
@@ -734,8 +795,9 @@ function categoriesModalHtml() {
   const row = (c) => `
     <div class="grid grid-cols-12 gap-2 items-center py-2 border-t border-slate-100" data-cat-row="${c.id || "new"}">
       <input data-c="name" value="${esc(c.name || "")}" placeholder="ชื่อหมวด" class="${INPUT} col-span-3">
-      <select data-c="parent_id" class="${INPUT} col-span-3"><option value="">(หมวดหลัก)</option>${state.cats.filter(p => p.id !== c.id && !p.parent_id).map(p => `<option value="${p.id}" ${c.parent_id === p.id ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
-      <input data-c="keywords" value="${esc((c.keywords || []).join(", "))}" placeholder="คำที่ใช้เดาหมวด คั่นด้วยจุลภาค" class="${INPUT} col-span-4">
+      <select data-c="parent_id" class="${INPUT} col-span-2"><option value="">(หมวดหลัก)</option>${state.cats.filter(p => p.id !== c.id && !p.parent_id).map(p => `<option value="${p.id}" ${c.parent_id === p.id ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
+      <input data-c="keywords" value="${esc((c.keywords || []).join(", "))}" placeholder="คำที่ใช้เดาหมวด คั่นด้วยจุลภาค" class="${INPUT} col-span-3">
+      <select data-c="ad_level" class="${INPUT} col-span-2" title="การแสดงโฆษณาของหมวด">${AD_LEVELS.map(([v, l]) => `<option value="${v}" ${catLevel(c) === v ? "selected" : ""}>${v === 2 ? "แสดงปกติ" : l === "ปิด" ? "ปิดการแสดง" : l}</option>`).join("")}</select>
       <div class="col-span-2 flex justify-end gap-1">
         <button data-act="save-cat" data-id="${c.id || ""}" class="${BTN} h-9">${c.id ? "บันทึก" : "เพิ่ม"}</button>
         ${c.id ? `<button data-act="delete-cat" data-id="${c.id}" class="${BTN_DANGER} h-9 px-2" aria-label="ลบหมวด">ลบ</button>` : ""}
@@ -743,7 +805,8 @@ function categoriesModalHtml() {
     </div>`;
   return `
     <h2 class="text-lg font-semibold">จัดการหมวดหมู่</h2>
-    <p class="mt-1 text-sm text-slate-500">ลบหมวดแล้วสินค้าในหมวดนั้นจะกลายเป็น "ยังไม่มีหมวด" ไม่ถูกลบ</p>
+    <p class="mt-1 text-sm text-slate-500">ลบหมวดแล้วสินค้าในหมวดนั้นจะกลายเป็น "ยังไม่มีหมวด" ไม่ถูกลบ<br>
+      ช่องการแสดง: "แสดงน้อย" ลดโอกาสถูกสุ่มขึ้นเว็บ "ปิดการแสดง" ไม่สุ่มเลย (หมวดย่อยทำตามหมวดหลัก) ตั้งแล้วกดบันทึกของแถวนั้น</p>
     <div class="mt-4 max-h-[60vh] overflow-y-auto pr-1">${state.cats.map(row).join("")}${row({})}</div>
     <div class="mt-5 flex justify-end"><button data-act="close-modal" class="${BTN} h-9">เสร็จ</button></div>`;
 }
@@ -755,6 +818,7 @@ async function saveCat(btn) {
   const cat = {
     id, name: get("name").trim(), parent_id: get("parent_id") ? Number(get("parent_id")) : null,
     keywords: get("keywords").split(",").map(k => k.trim()).filter(Boolean),
+    ad_level: Number(get("ad_level")),
     sort: id ? catById(id)?.sort || 0 : (Math.max(0, ...state.cats.map(c => c.sort || 0)) + 10),
   };
   if (!cat.name) return toast("ใส่ชื่อหมวดก่อน", "error");
@@ -779,14 +843,202 @@ function renderModal() {
   const el = $("#modal");
   if (!el) return;
   if (!state.modal) { el.innerHTML = ""; return; }
-  const inner = state.modal === "import" ? importModalHtml() : state.modal === "sites" ? sitesModalHtml() : categoriesModalHtml();
+  const inner = state.modal === "import" ? importModalHtml() : state.modal === "sites" ? sitesModalHtml()
+    : state.modal === "ai" ? aiModalHtml() : categoriesModalHtml();
   el.innerHTML = `
     <div class="fixed inset-0 z-[60] grid place-items-center p-4">
       <div data-act="close-modal" class="absolute inset-0 bg-slate-900/40"></div>
-      <div class="relative w-full ${state.modal === "import" ? "max-w-3xl" : "max-w-4xl"} max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl p-6">${inner}</div>
+      <div class="relative w-full ${{ import: "max-w-3xl", ai: "max-w-xl" }[state.modal] || "max-w-4xl"} max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl p-6">${inner}</div>
     </div>`;
 }
 
+// ---------- หน้าสถิติ ----------
+const DASH_RANGES = [[7, "7 วัน"], [30, "30 วัน"], [90, "90 วัน"], [365, "1 ปี"], [0, "ทั้งหมด"]];
+const ctr = (v, c) => (v ? `${(c / v * 100).toLocaleString("th-TH", { maximumFractionDigits: 1 })}%` : "-");
+
+// เปิดหน้าทุกครั้งโหลดใหม่ (แสดงของเดิมไว้ระหว่างรอ) days ไม่ส่ง = ช่วงที่เลือกไว้ครั้งก่อน
+async function loadDash(days) {
+  if (days === undefined) days = Number(localGet("hub.dashDays") ?? 30);
+  if (!DASH_RANGES.some(([d]) => d === days)) days = 30;
+  localSet("hub.dashDays", String(days));
+  state.dash = { days, data: state.dash?.days === days ? state.dash.data : null, loading: true };
+  renderStats();
+  const data = await guard(() => HubAPI.dashboard(days));
+  if (state.dash?.days !== days) return;
+  state.dash = { days, data: data || { totals: { views: 0, clicks: 0, products: 0 }, series: [], top: [], placements: [] }, loading: false };
+  renderStats();
+}
+
+function renderStats() {
+  const el = $("#statsBody");
+  if (el && state.dash) el.innerHTML = statsPageHtml();
+}
+
+function trend(now, before) {
+  if (before == null) return "";
+  if (!before) return now ? `<span class="text-emerald-600">ใหม่</span>` : "";
+  const pct = Math.round((now - before) / before * 100);
+  const cls = pct > 0 ? "text-emerald-600" : pct < 0 ? "text-rose-600" : "text-slate-400";
+  return `<span class="${cls}">${pct > 0 ? "+" : ""}${pct}%</span> <span class="text-slate-400">จากช่วงก่อน</span>`;
+}
+
+// กราฟแท่งแบบ SVG ไม่ต้องใช้ไลบรารี (ชี้ที่แท่งเพื่อดูตัวเลข)
+function barChart(series, key, color, unit) {
+  const W = 760, H = 120, n = series.length || 1;
+  const max = Math.max(1, ...series.map(s => Number(s[key])));
+  const bw = W / n;
+  const label = (t) => new Date(`${t}T00:00:00`).toLocaleDateString("th-TH", unit === "month" ? { month: "short", year: "2-digit" } : { day: "numeric", month: "short" });
+  const bars = series.map((s, i) => {
+    const h = Number(s[key]) / max * (H - 4);
+    return `<rect x="${(i * bw + bw * 0.15).toFixed(1)}" y="${(H - h).toFixed(1)}" width="${(bw * 0.7).toFixed(1)}" height="${Math.max(h, Number(s[key]) ? 1.5 : 0).toFixed(1)}" rx="2" fill="${color}"><title>${label(s.t)}: ${fmtNum(s[key])}</title></rect>`;
+  }).join("");
+  const step = Math.ceil(n / 5);
+  // วันแรกชิดซ้าย วันสุดท้ายชิดขวา ป้ายไม่ล้นออกนอกกราฟ
+  const ticks = series.map((s, i) => (i % step === 0 || i === n - 1) && (i === n - 1 || n - 1 - i >= step)
+    ? `<span class="absolute whitespace-nowrap" style="${i === 0 ? "left:0" : i === n - 1 ? "right:0" : `left:${((i + 0.5) / n * 100).toFixed(2)}%;transform:translateX(-50%)`}">${label(s.t)}</span>` : "").join("");
+  return `<div class="relative">
+      <div class="absolute right-0 -top-5 text-[11px] text-slate-400">สูงสุด ${fmtNum(max)}</div>
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="w-full h-28 block border-b border-slate-200">${bars}</svg>
+      <div class="relative h-5 mt-1 text-[11px] text-slate-400">${ticks}</div>
+    </div>`;
+}
+
+function statsPageHtml() {
+  const { days, data: d, loading } = state.dash;
+  const tabs = DASH_RANGES.map(([v, l]) => `<button data-act="stats-range" data-v="${v}" class="h-8 px-3 rounded-md text-sm whitespace-nowrap ${v === days ? "bg-white shadow-sm font-semibold text-slate-900" : "text-slate-500 hover:text-slate-800"}">${l}</button>`).join("");
+  const head = `<div class="flex flex-wrap items-center justify-between gap-3">
+      <h1 class="text-xl font-semibold">สถิติการแสดงและคลิก</h1>
+      <div class="flex items-center gap-2 max-w-full">
+        <button data-act="stats-reload" class="${BTN} h-9 shrink-0" ${loading ? "disabled" : ""}>${loading ? "กำลังโหลด…" : "โหลดใหม่"}</button>
+        <div class="flex gap-1 p-1 rounded-lg bg-slate-100 overflow-x-auto">${tabs}</div>
+      </div>
+    </div>`;
+  if (!d) return `${head}<div class="py-16 text-center text-sm text-slate-400">กำลังโหลด…</div>`;
+  const t = d.totals, p = d.prev;
+  const tile = (label, value, sub) => `<div class="rounded-xl border border-slate-200 bg-white p-4">
+      <div class="text-xs text-slate-500">${label}</div>
+      <div class="mt-1 text-2xl font-semibold tabular-nums">${value}</div>
+      <div class="mt-1 text-xs min-h-[1rem]">${sub}</div></div>`;
+  const range = d.from ? `${new Date(`${d.from}T00:00:00`).toLocaleDateString("th-TH", { dateStyle: "medium" })} – ${new Date(`${d.to}T00:00:00`).toLocaleDateString("th-TH", { dateStyle: "medium" })}` : "";
+  const empty = !t.views && !t.clicks;
+  const th = "py-2 px-3 font-medium";
+  const num = "py-2 px-3 text-right tabular-nums whitespace-nowrap";
+  const topRows = d.top.map((r, i) => `<tr class="border-t border-slate-100">
+      <td class="py-2 px-3 text-slate-400 tabular-nums">${i + 1}</td>
+      <td class="py-2 px-3"><div class="flex items-center gap-2 min-w-0">
+        ${r.image_url ? `<img src="${esc(r.image_url)}" alt="" class="w-9 h-9 rounded object-cover shrink-0 bg-slate-100" loading="lazy">` : `<div class="w-9 h-9 rounded bg-slate-100 shrink-0"></div>`}
+        <div class="min-w-0"><div class="truncate max-w-[22rem]" title="${esc(r.title)}">${esc(r.title)}</div>
+        <div class="text-[11px] text-slate-400">#${r.id}${r.source ? ` · ${esc(r.source)}` : ""}${STATUS[r.status] && r.status !== "active" ? ` · ${STATUS[r.status].label}` : ""}</div></div></div></td>
+      <td class="${num}">${fmtNum(r.views)}</td><td class="${num} font-semibold">${fmtNum(r.clicks)}</td><td class="${num} text-slate-500">${ctr(r.views, r.clicks)}</td>
+    </tr>`).join("");
+  const plRows = d.placements.map(r => `<tr class="border-t border-slate-100">
+      <td class="py-2 px-3">${r.site ? esc(r.site) : `<span class="text-slate-400">ไม่ระบุเว็บ (ลิงก์ /go/ ตรง)</span>`}</td>
+      <td class="py-2 px-3 text-slate-500">${esc(r.placement || "-")}</td>
+      <td class="${num}">${fmtNum(r.views)}</td><td class="${num} font-semibold">${fmtNum(r.clicks)}</td><td class="${num} text-slate-500">${ctr(r.views, r.clicks)}</td>
+    </tr>`).join("");
+  const table = (cols, rows) => `<div class="mt-2 overflow-x-auto rounded-xl border border-slate-200 bg-white"><table class="w-full text-sm">
+      <thead class="bg-slate-50 text-slate-500 text-xs"><tr>${cols}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  const nums = `<th class="${th} text-right">แสดง</th><th class="${th} text-right">คลิก</th><th class="${th} text-right">อัตราคลิก</th>`;
+  return `${head}
+    <p class="mt-1 text-xs text-slate-400">${range} (เวลาไทย) ข้อมูลเก็บไว้ทั้งหมด ไม่ถูกลบ</p>
+    <div class="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+      ${tile("การแสดง", fmtNum(t.views), trend(t.views, p?.views))}
+      ${tile("คลิก", fmtNum(t.clicks), trend(t.clicks, p?.clicks))}
+      ${tile("อัตราคลิก (CTR)", ctr(t.views, t.clicks), `<span class="text-slate-400">คลิก ÷ การแสดง</span>`)}
+      ${tile("สินค้าที่มีคนเห็น/คลิก", fmtNum(t.products), "")}
+    </div>
+    ${empty ? `<div class="mt-6 rounded-xl border border-dashed border-slate-300 bg-white py-10 text-center text-sm text-slate-500">ยังไม่มีคนเห็นหรือกดโฆษณาในช่วงนี้<br><span class="text-xs text-slate-400">ยอดจะขึ้นเมื่อมีคนเปิดหน้าเว็บที่ฝังโค้ด หรือกดลิงก์ /go/</span></div>` : `
+    <div class="mt-6 grid md:grid-cols-2 gap-6">
+      <div class="rounded-xl border border-slate-200 bg-white p-4"><div class="text-sm font-medium mb-6">คลิก${d.unit === "month" ? "รายเดือน" : "รายวัน"}</div>${barChart(d.series, "clicks", "#3b6ef6", d.unit)}</div>
+      <div class="rounded-xl border border-slate-200 bg-white p-4"><div class="text-sm font-medium mb-6">การแสดง${d.unit === "month" ? "รายเดือน" : "รายวัน"}</div>${barChart(d.series, "views", "#94a3b8", d.unit)}</div>
+    </div>
+    <h3 class="mt-6 text-sm font-semibold">สินค้าที่คลิกมากที่สุด</h3>
+    ${table(`<th class="${th} text-left w-8">#</th><th class="${th} text-left">สินค้า</th>${nums}`, topRows)}
+    <h3 class="mt-6 text-sm font-semibold">แยกตามเว็บและจุดที่วาง</h3>
+    ${table(`<th class="${th} text-left">เว็บ</th><th class="${th} text-left">จุดที่วาง</th>${nums}`, plRows)}`}`;
+}
+
+// ---------- ตั้งค่า AI ----------
+// คีย์เก็บในตาราง hub_settings (แอดมินเท่านั้น) ฟังก์ชัน review อ่านไปใช้ตอนกด "เขียนด้วย AI"
+const AI_PRESETS = {
+  claude: { label: "Claude (Anthropic)", provider: "anthropic", base_url: "", model: "claude-opus-5-5", models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"], keyUrl: "https://console.anthropic.com/settings/keys" },
+  openai: { label: "OpenAI (ChatGPT)", provider: "openai", base_url: "https://api.openai.com/v1", model: "", models: [], keyUrl: "https://platform.openai.com/api-keys" },
+  gemini: { label: "Google Gemini", provider: "openai", base_url: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-2.5-flash", models: ["gemini-2.5-flash", "gemini-2.5-pro"], keyUrl: "https://aistudio.google.com/apikey" },
+  deepseek: { label: "DeepSeek", provider: "openai", base_url: "https://api.deepseek.com", model: "deepseek-chat", models: ["deepseek-chat"], keyUrl: "https://platform.deepseek.com/api_keys" },
+  openrouter: { label: "OpenRouter", provider: "openai", base_url: "https://openrouter.ai/api/v1", model: "", models: [], keyUrl: "https://openrouter.ai/keys" },
+  custom: { label: "อื่นๆ (รูปแบบ OpenAI)", provider: "openai", base_url: "", model: "", models: [], keyUrl: "" },
+};
+
+async function openAi() {
+  state.modal = "ai";
+  state.ai = null;
+  renderModal();
+  const s = await guard(() => HubAPI.aiSettings());
+  if (state.modal !== "ai") return;
+  const v = s || {};
+  const preset = AI_PRESETS[v.preset] ? v.preset : "claude";
+  state.ai = {
+    preset, provider: v.provider || AI_PRESETS[preset].provider, base_url: v.base_url ?? AI_PRESETS[preset].base_url,
+    model: v.model || AI_PRESETS[preset].model, api_key: "", has_key: !!v.has_key, key_hint: v.key_hint || "", busy: false,
+  };
+  renderModal();
+}
+
+function readAiInputs() {
+  document.querySelectorAll("#modal [data-ai]").forEach(inp => { state.ai[inp.dataset.ai] = inp.value.trim(); });
+}
+
+function aiModalHtml() {
+  const a = state.ai;
+  const head = `<h2 class="text-lg font-semibold">ตั้งค่า AI เขียนรีวิว</h2>
+    <p class="mt-1 text-sm text-slate-500">ใช้กับปุ่ม "เขียนด้วย AI" ในแผงแก้ไขสินค้า คีย์เก็บใน Supabase อ่านได้เฉพาะแอดมิน และไม่แสดงกลับมาที่หน้านี้</p>`;
+  if (!a) return `${head}<div class="mt-6 text-sm text-slate-400">กำลังโหลด…</div>`;
+  const pre = AI_PRESETS[a.preset];
+  const field = (label, html, hint = "") => `<label class="block mt-4 text-sm font-medium text-slate-700">${label}${html}${hint ? `<span class="block mt-1 text-xs font-normal text-slate-400">${hint}</span>` : ""}</label>`;
+  return `${head}
+    ${field("เจ้า AI", `<select data-act="ai-preset" class="${INPUT} mt-1 w-full">${Object.entries(AI_PRESETS).map(([k, p]) => `<option value="${k}" ${k === a.preset ? "selected" : ""}>${p.label}</option>`).join("")}</select>`,
+      pre.keyUrl ? `ขอคีย์ได้ที่ <a href="${pre.keyUrl}" target="_blank" rel="noopener" class="text-brand-600 hover:underline">${esc(new URL(pre.keyUrl).host)}</a>` : "")}
+    ${field("API key", `<input data-ai="api_key" type="password" autocomplete="off" value="${esc(a.api_key)}" placeholder="${a.has_key ? `ตั้งไว้แล้ว (…${esc(a.key_hint)}) เว้นว่าง = ใช้คีย์เดิม` : "วางคีย์ที่นี่"}" class="${INPUT} mt-1 w-full">`)}
+    ${field("รุ่น (model)", `<input data-ai="model" list="ai-models" value="${esc(a.model)}" placeholder="${pre.provider === "anthropic" ? "claude-opus-5-5" : "ชื่อรุ่น เช่น gpt-5-mini"}" class="${INPUT} mt-1 w-full">
+      <datalist id="ai-models">${pre.models.map(m => `<option value="${m}">`).join("")}</datalist>`,
+      a.preset === "claude" ? "claude-haiku-5-5 ถูกและเร็วกว่า เหมาะกับเขียนรีวิวจำนวนมาก" : "")}
+    ${pre.provider === "openai" ? field("ที่อยู่ API (base URL)", `<input data-ai="base_url" value="${esc(a.base_url)}" placeholder="https://…/v1" class="${INPUT} mt-1 w-full">`) : ""}
+    <div class="mt-6 flex flex-wrap items-center justify-between gap-2">
+      <div>${a.has_key ? `<button data-act="ai-clear" class="${BTN_DANGER} h-9" ${a.busy ? "disabled" : ""}>ลบคีย์</button>` : ""}</div>
+      <div class="flex gap-2">
+        <button data-act="close-modal" class="${BTN} h-9">ปิด</button>
+        <button data-act="ai-save" class="${BTN_PRIMARY} h-9" ${a.busy ? "disabled" : ""}>${a.busy ? "กำลังบันทึก…" : "บันทึก"}</button>
+      </div>
+    </div>`;
+}
+
+function setAiPreset(key) {
+  readAiInputs();
+  const p = AI_PRESETS[key];
+  Object.assign(state.ai, { preset: key, provider: p.provider, base_url: p.base_url, model: p.model });
+  renderModal();
+}
+
+async function saveAi(clear) {
+  const a = state.ai;
+  readAiInputs();
+  if (clear && !confirm("ลบคีย์ AI? ปุ่มเขียนด้วย AI จะกลับไปสุ่มแบบป้ายยา")) return;
+  if (!clear) {
+    if (!a.api_key && !a.has_key) return toast("วางคีย์ก่อน", "error");
+    if (!a.model && a.provider !== "anthropic") return toast("ใส่ชื่อรุ่นก่อน", "error");
+    if (a.provider === "openai" && !/^https:\/\//.test(a.base_url)) return toast("ที่อยู่ API ต้องขึ้นต้นด้วย https://", "error");
+  }
+  a.busy = true;
+  renderModal();
+  const out = await guard(() => HubAPI.saveAiSettings({
+    preset: a.preset, provider: a.provider, model: a.model, base_url: a.provider === "openai" ? a.base_url : "",
+    api_key: clear ? "" : a.api_key, clear_key: !!clear,
+  }), clear ? "ลบคีย์แล้ว" : "บันทึกตั้งค่า AI แล้ว");
+  if (state.modal !== "ai") return;
+  a.busy = false;
+  if (out) Object.assign(a, { api_key: "", has_key: !!out.has_key, key_hint: out.key_hint || "" });
+  renderModal();
+}
 
 // ---------- เว็บที่แสดงโฆษณา ----------
 // แต่ละเว็บมีคีย์ที่ใส่ในโค้ดฝัง (ads.js?site=<คีย์>) และจุดที่วางหลายจุด เช่น feed (แทรกในรายการ) detail (หน้ารายละเอียด)
@@ -955,6 +1207,7 @@ async function onClick(e) {
   if (["select", "select-page", "upload", "import-file"].includes(act)) return;   // จัดการใน onChange
   switch (act) {
     case "edit": openDrawer(Number(el.dataset.id)); break;
+    case "new-product": openDrawer("new"); break;
     case "close-drawer": closeDrawer(); break;
     case "save-drawer": saveDrawer(); break;
     case "delete-one": {
@@ -981,12 +1234,18 @@ async function onClick(e) {
       break;
     case "open-import": openImport(); break;
     case "open-categories": state.modal = "categories"; renderModal(); break;
+    case "cat-level": setCatLevel(Number(el.dataset.id), Number(v)); break;
     case "close-modal": closeModal(); break;
     case "import-legacy": loadLegacy(); break;
     case "run-import": runImport(); break;
     case "save-cat": saveCat(el); break;
     case "delete-cat": deleteCat(Number(el.dataset.id)); break;
     case "open-sites": openSites(); break;
+    case "open-ai": openAi(); break;
+    case "stats-range": loadDash(Number(v)); break;
+    case "stats-reload": loadDash(state.dash?.days); break;
+    case "ai-save": saveAi(false); break;
+    case "ai-clear": saveAi(true); break;
     case "save-site": saveSite(el); break;
     case "delete-site": deleteSite(Number(el.dataset.id)); break;
     case "save-placement": savePlacement(el); break;
@@ -1029,6 +1288,7 @@ async function onChange(e) {
       break;
     case "upload": uploadDrawerImage(t); break;
     case "import-file": readImportFile(t); break;
+    case "ai-preset": setAiPreset(t.value); break;
   }
 }
 

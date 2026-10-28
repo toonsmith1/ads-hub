@@ -40,7 +40,7 @@
       return must(await client.from("hub_categories").select("*").order("sort").order("name"));
     },
     async saveCategory(cat) {
-      const row = { name: cat.name, parent_id: cat.parent_id || null, sort: cat.sort || 0, keywords: cat.keywords || [] };
+      const row = { name: cat.name, parent_id: cat.parent_id || null, sort: cat.sort || 0, keywords: cat.keywords || [], ad_level: cat.ad_level ?? 2 };
       const q = cat.id ? client.from("hub_categories").update(row).eq("id", cat.id) : client.from("hub_categories").insert(row);
       return must(await q.select().single());
     },
@@ -104,11 +104,22 @@
       const rows = must(await client.rpc("hub_product_stats", { p_ids: ids, p_days: days }));
       return Object.fromEntries((rows || []).map(r => [r.product_id, { views: Number(r.views), clicks: Number(r.clicks) }]));
     },
+    // แดชบอร์ดสถิติ: days = 0 คือทั้งหมด
+    async dashboard(days) {
+      return must(await client.rpc("hub_dashboard", { p_days: days }));
+    },
     // ร่างรีวิวด้วย AI (Edge Function "review") → {text, model} หรือ {error, reason: no_key | quota | failed}
     async writeReview(id) {
       const { data, error } = await client.functions.invoke("review", { body: { id } });
       if (error) return { error: "เรียกฟังก์ชัน review ไม่ได้ (ติดตั้งแล้วหรือยัง)", reason: "failed" };
       return data || { error: "ไม่มีผลตอบกลับ", reason: "failed" };
+    },
+    // ตั้งค่า AI (คีย์ไม่ถูกส่งกลับมา ได้แค่ has_key กับ 4 ตัวท้าย)
+    async aiSettings() {
+      return must(await client.rpc("hub_ai_settings"));
+    },
+    async saveAiSettings(p) {
+      return must(await client.rpc("hub_save_ai_settings", { p }));
     },
     async productTitles(ids) {
       if (!ids.length) return [];

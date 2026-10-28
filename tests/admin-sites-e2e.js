@@ -76,7 +76,91 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", "
   assert.deepEqual(saved.details.removed_images, ["https://img.example/g2.png"]);
   assert.equal(saved.description, "ผ้าทวิตหนา ใส่สบาย");
 
-  // ร่างรีวิว: สุ่มแบบป้ายยาจากข้อมูลจริง / AI / AI ใช้ไม่ได้ → สุ่มแทน แล้วบันทึก
+  // เพิ่มสินค้าเอง (ลิงก์ AccessTrade): เริ่มเป็น "กำลังแสดง" แหล่งเป็น accesstrade
+  await page.waitForTimeout(300);
+  await page.click("[data-act=new-product]");
+  assert.equal(await page.textContent("#drawer h2"), "เพิ่มสินค้า");
+  assert.equal(await page.inputValue("#drawer [data-d=status]"), "active");
+  await page.fill("#drawer [data-d=title]", "หูฟังไร้สาย จาก AccessTrade");
+  await page.fill("#drawer [data-d=link]", "https://atth.me/abc123");
+  await page.fill("#drawer [data-d=image_url]", "https://img.example/at.png");
+  await page.click("#drawer [data-act=save-drawer]");
+  await page.waitForFunction(() => window.__fake.products.some(p => p.link === "https://atth.me/abc123"));
+  const manual = await page.evaluate(() => window.__fake.products.find(p => p.link === "https://atth.me/abc123"));
+  assert.equal(manual.source, "accesstrade");
+  assert.equal(manual.status, "active");
+  assert.equal(manual.title, "หูฟังไร้สาย จาก AccessTrade");
+
+  // หน้าสถิติ (#stats): ยอดรวม กราฟ สินค้ายอดนิยม แยกตามเว็บ เปลี่ยนช่วงได้ จำช่วงที่เลือก แล้วกลับหน้าสินค้า
+  await page.click("#nav a[href='#stats']");
+  await page.waitForSelector("#statsPage svg");
+  assert.equal(await page.evaluate(() => location.hash), "#stats");
+  assert(await page.isHidden("#productsPage"));
+  const dash = await page.textContent("#statsPage");
+  assert(dash.includes("สินค้าที่คลิกมากที่สุด") && dash.includes("ย้ายราชการ") && dash.includes("ไม่ระบุเว็บ"), dash);
+  assert.equal(await page.evaluate(() => document.querySelectorAll("#statsPage svg")[0].querySelectorAll("rect").length), 30);
+  await page.click("#statsPage [data-act=stats-range][data-v='0']");
+  await page.waitForFunction(() => document.querySelectorAll("#statsPage svg")[0]?.querySelectorAll("rect").length === 14);
+  assert(!(await page.textContent("#statsPage")).includes("จากช่วงก่อน"), "ทั้งหมดไม่มีช่วงก่อนให้เทียบ");
+  if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT, fullPage: true });
+  await page.goBack();   // กลับหน้าสินค้าด้วยปุ่มย้อนกลับของเบราว์เซอร์
+  await page.waitForSelector("#productsPage:not([hidden])");
+  assert(await page.isHidden("#statsPage"));
+  await page.goto(base + "#stats");   // เปิดลิงก์หน้าสถิติตรงๆ ได้ และจำช่วงที่เลือกไว้
+  await page.waitForSelector("#statsPage svg");
+  const dashCalls = (await page.evaluate(() => window.__fake.calls.filter(c => "dashboard" in c))).map(c => c.dashboard);
+  assert.deepEqual(dashCalls, [30, 0, 0], JSON.stringify(dashCalls));
+  await page.click("#nav a[href='#']");
+  await page.waitForSelector("article[data-act=edit]");
+
+  // ปิด/ลดการแสดงทั้งหมวด: เลือกหมวดแล้วกดระดับ ได้ป้ายในแถบหมวด และตั้งจากหน้าจัดการหมวดได้
+  await page.click("#sidebar [data-act=cat][data-v='3']");
+  await page.click("#filters [data-act=cat-level][data-v='0']");
+  await page.waitForFunction(() => window.__fake.cats.find(c => c.id === 3).ad_level === 0);
+  await page.waitForFunction(() => document.querySelector("#sidebar [data-act=cat][data-v='3']").textContent.includes("ปิด"));
+  assert((await page.textContent("#filters")).includes("จะไม่ถูกสุ่มขึ้นเว็บ"));
+  await page.click("#sidebar [data-act=cat][data-v='2']");   // หมวดย่อยของแฟชั่น (ปกติ) ไม่มีหมายเหตุ
+  await page.click("#sidebar [data-act=open-categories]");
+  await page.selectOption("#modal [data-cat-row='1'] [data-c=ad_level]", "1");
+  await page.click("#modal [data-cat-row='1'] [data-act=save-cat]");
+  await page.waitForFunction(() => window.__fake.cats.find(c => c.id === 1).ad_level === 1);
+  await page.click("#modal button[data-act=close-modal]");
+  await page.waitForFunction(() => document.querySelector("#filters").textContent.includes("หมวดหลัก"));   // เสื้อคลุมทำตามแฟชั่น
+  await page.click("#filters [data-act=cat-level][data-v='2']");   // หมวดย่อยปกติอยู่แล้ว ไม่เรียกบันทึก
+  await page.click("#sidebar [data-act=cat][data-v='all']");
+  assert.equal(await page.$("#filters [data-act=cat-level]"), null, "ทุกหมวดไม่มีแถบนี้");
+
+  // ตั้งค่า AI: เลือกเจ้า วางคีย์ บันทึก เปิดใหม่ไม่เห็นคีย์เต็ม เว้นว่างแล้วบันทึกยังใช้คีย์เดิม
+  await page.click("[data-act=open-ai]");
+  await page.waitForSelector("#modal [data-ai=api_key]");
+  assert.equal(await page.inputValue("#modal [data-ai=model]"), "claude-opus-5-5");
+  assert.equal(await page.$("#modal [data-ai=base_url]"), null, "Claude ไม่ต้องใส่ที่อยู่ API");
+  await page.selectOption("#modal [data-act=ai-preset]", "gemini");
+  assert.equal(await page.inputValue("#modal [data-ai=base_url]"), "https://generativelanguage.googleapis.com/v1beta/openai");
+  assert.equal(await page.inputValue("#modal [data-ai=model]"), "gemini-2.5-flash");
+  await page.selectOption("#modal [data-act=ai-preset]", "claude");
+  await page.fill("#modal [data-ai=model]", "claude-haiku-5-5");
+  await page.fill("#modal [data-ai=api_key]", "sk-ant-secret9876");
+  await page.click("#modal [data-act=ai-save]");
+  await page.waitForFunction(() => window.__fake.aiSettings?.api_key === "sk-ant-secret9876");
+  assert.deepEqual(await page.evaluate(() => window.__fake.aiSettings),
+    { preset: "claude", provider: "anthropic", model: "claude-haiku-5-5", base_url: "", api_key: "sk-ant-secret9876" });
+  await page.click("#modal button[data-act=close-modal]");
+  await page.click("[data-act=open-ai]");
+  await page.waitForSelector("#modal [data-ai=api_key]");
+  assert.equal(await page.inputValue("#modal [data-ai=api_key]"), "");
+  assert.match(await page.getAttribute("#modal [data-ai=api_key]", "placeholder"), /9876/);
+  assert.equal(await page.inputValue("#modal [data-ai=model]"), "claude-haiku-5-5");
+  await page.click("#modal [data-act=ai-save]");
+  await page.waitForTimeout(200);
+  assert.equal(await page.evaluate(() => window.__fake.aiSettings.api_key), "sk-ant-secret9876", "เว้นว่างต้องใช้คีย์เดิม");
+  page.once("dialog", d => d.accept());
+  await page.click("#modal [data-act=ai-clear]");
+  await page.waitForFunction(() => window.__fake.aiSettings.api_key === "");
+  await page.waitForSelector("#modal [data-act=ai-clear]", { state: "detached" });
+  await page.click("#modal button[data-act=close-modal]");
+
+    // ร่างรีวิว: สุ่มแบบป้ายยาจากข้อมูลจริง / AI / AI ใช้ไม่ได้ → สุ่มแทน แล้วบันทึก
   await page.waitForTimeout(300);   // รอรายการโหลดใหม่หลังบันทึก
   await page.click("article[data-id='1']");
   await page.click("#drawer [data-act=spin-review]");

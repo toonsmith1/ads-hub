@@ -24,6 +24,10 @@ create table if not exists public.hub_categories (
   keywords text[] not null default '{}',
   created_at timestamptz not null default now()
 );
+-- การแสดงโฆษณาของสินค้าในหมวด: 2 ปกติ, 1 แสดงน้อย (โอกาสถูกสุ่ม 1/5), 0 ปิด (ไม่สุ่ม) หมวดย่อยทำตามหมวดหลักด้วย
+alter table public.hub_categories add column if not exists ad_level smallint not null default 2;
+alter table public.hub_categories drop constraint if exists hub_categories_ad_level_check;
+alter table public.hub_categories add constraint hub_categories_ad_level_check check (ad_level between 0 and 2);
 
 create table if not exists public.hub_products (
   id bigserial primary key,
@@ -419,20 +423,27 @@ begin
 
   with live as (
     select hp.*, (select count(*) from hub_events e
-                  where e.product_id = hp.id and e.event = 'click' and e.event_at > now() - interval '30 days') as clicks
+                  where e.product_id = hp.id and e.event = 'click' and e.event_at > now() - interval '30 days') as clicks,
+           -- ระดับการแสดงของหมวด (หมวดย่อยใช้ระดับที่ต่ำกว่าระหว่างตัวเองกับหมวดหลัก) 0 ปิด 1 น้อย 2 ปกติ
+           least(coalesce(c.ad_level, 2), coalesce(cp.ad_level, 2)) as cat_level
     from hub_products hp
+    left join hub_categories c on c.id = hp.category_id
+    left join hub_categories cp on cp.id = c.parent_id
     where hub_is_live(hp) and not (hp.id = any (coalesce(p_exclude, '{}')))
   ),
   ranked as (
     select l.*,
            case when l.id = any (p_products) then 0
                 when l.id = any (pl.pinned_ids) then 1
+                -- หมวดที่ปิดไว้ไม่ถูกสุ่ม แต่ที่ปักหมุดหรือระบุรหัสสินค้ามาตรงๆ ยังแสดง
+                when l.cat_level = 0 then null
                 when l.category_id = any (ctx) then 2
                 when cats is null or l.category_id = any (cats) then 3
            end as tier,
            coalesce(array_position(p_products, l.id), array_position(pl.pinned_ids, l.id)) as pin_order,
            -- Efraimidis–Spirakis: ค่าน้อยได้ก่อน ยิ่งน้ำหนักมากยิ่งมีโอกาสได้ค่าน้อย
-           -ln(1 - random()) / (l.weight * (1 + coalesce(l.commission, 0) / 10.0) * (1 + ln(1 + l.clicks))) as roll
+           -ln(1 - random()) / (l.weight * (1 + coalesce(l.commission, 0) / 10.0) * (1 + ln(1 + l.clicks))
+                                * case when l.cat_level = 1 then 0.2 else 1 end) as roll
     from live l
   ),
   picked as (
@@ -541,3 +552,134 @@ as $$
 $$;
 revoke all on function public.hub_product_info(bigint[]) from public;
 grant execute on function public.hub_product_info(bigint[]) to anon, authenticated;
+
+-- ---------- ตั้งค่า (เช่นคีย์ AI สำหรับปุ่ม "เขียนด้วย AI") ----------
+-- แถว key = 'ai': {provider, api_key, model, base_url, preset} อ่าน/เขียนได้เฉพาะแอดมิน
+-- Edge Function "review" อ่านด้วยสิทธิ์ของแอดมินที่กดปุ่ม ถ้าไม่มีแถวนี้จะใช้ Secrets ของ Edge Functions แทน
+create table if not exists public.hub_settings (
+  key text primary key,
+  value jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+alter table public.hub_settings enable row level security;
+grant select, insert, update, delete on public.hub_settings to authenticated;
+drop policy if exists "admin all" on public.hub_settings;
+create policy "admin all" on public.hub_settings for all to authenticated
+  using (public.hub_is_admin()) with check (public.hub_is_admin());
+
+-- หน้าจัดการเห็นแค่ 4 ตัวท้ายของคีย์ ไม่ส่งคีย์เต็มกลับไปที่เบราว์เซอร์
+create or replace function public.hub_ai_settings() returns jsonb
+language sql stable security invoker
+set search_path = public
+as $$
+  select coalesce((
+    select (value - 'api_key') || jsonb_build_object(
+             'has_key', coalesce(value ->> 'api_key', '') <> '',
+             'key_hint', right(coalesce(value ->> 'api_key', ''), 4))
+    from hub_settings where key = 'ai'), '{"has_key": false}'::jsonb);
+$$;
+revoke all on function public.hub_ai_settings() from public;
+grant execute on function public.hub_ai_settings() to authenticated;
+
+-- บันทึก: api_key ว่าง = ใช้คีย์เดิม, clear_key = true ลบคีย์
+create or replace function public.hub_save_ai_settings(p jsonb) returns jsonb
+language plpgsql security invoker
+set search_path = public
+as $$
+declare
+  v_old text := coalesce((select value ->> 'api_key' from hub_settings where key = 'ai'), '');
+  v_key text := trim(coalesce(p ->> 'api_key', ''));
+  v jsonb;
+begin
+  if not public.hub_is_admin() then
+    raise exception 'ต้องเป็นแอดมินของ Ad Hub' using errcode = '42501';
+  end if;
+  if coalesce((p ->> 'clear_key')::boolean, false) then v_key := '';
+  elsif v_key = '' then v_key := v_old;
+  end if;
+  v := jsonb_build_object(
+    'preset', left(trim(coalesce(p ->> 'preset', '')), 40),
+    'provider', case when lower(p ->> 'provider') = 'openai' then 'openai' else 'anthropic' end,
+    'model', left(trim(coalesce(p ->> 'model', '')), 120),
+    'base_url', left(trim(coalesce(p ->> 'base_url', '')), 300),
+    'api_key', v_key);
+  insert into hub_settings (key, value, updated_at) values ('ai', v, now())
+    on conflict (key) do update set value = excluded.value, updated_at = now();
+  return public.hub_ai_settings();
+end;
+$$;
+revoke all on function public.hub_save_ai_settings(jsonb) from public;
+grant execute on function public.hub_save_ai_settings(jsonb) to authenticated;
+
+-- ==========================================
+-- แดชบอร์ดสถิติ (ปุ่ม "สถิติ" ในหน้าจัดการ) แอดมินเท่านั้น ตาม RLS ของ hub_events
+--   p_days = จำนวนวันย้อนหลัง, null หรือ 0 = ทั้งหมด  นับวันตามเวลาไทย
+-- คืนค่า {from, unit: day|month, totals, prev (ช่วงก่อนหน้าที่ยาวเท่ากัน), series, top, placements}
+-- ==========================================
+create index if not exists hub_events_site_idx on public.hub_events (site_id, placement, event_at desc);
+
+create or replace function public.hub_dashboard(p_days integer default 30)
+returns jsonb
+language plpgsql stable security invoker
+set search_path = public
+as $$
+declare
+  v_days int := case when coalesce(p_days, 0) <= 0 then null else least(p_days, 3650) end;
+  v_today date := (now() at time zone 'Asia/Bangkok')::date;
+  v_from date;
+  v_unit text;
+  v_start timestamptz;
+  v_prev timestamptz;
+  r jsonb;
+begin
+  if v_days is null then
+    v_from := coalesce((select min(event_at at time zone 'Asia/Bangkok')::date from hub_events), v_today);
+  else
+    v_from := v_today - (v_days - 1);
+  end if;
+  v_unit := case when v_today - v_from >= 92 then 'month' else 'day' end;
+  if v_unit = 'month' then v_from := date_trunc('month', v_from)::date; end if;
+  v_start := v_from::timestamp at time zone 'Asia/Bangkok';
+  v_prev := v_start - (v_today - v_from + 1) * interval '1 day';
+
+  with ev as (
+    select e.event, e.product_id, e.site_id, e.placement,
+           date_trunc(v_unit, e.event_at at time zone 'Asia/Bangkok')::date as bucket
+    from hub_events e where e.event_at >= v_start
+  ),
+  buckets as (
+    select g::date as bucket from generate_series(v_from, v_today, ('1 ' || v_unit)::interval) g
+  ),
+  top as (
+    select ev.product_id, count(*) filter (where event = 'view') as views, count(*) filter (where event = 'click') as clicks
+    from ev group by ev.product_id
+    order by clicks desc, views desc, ev.product_id limit 20
+  ),
+  pl as (
+    select ev.site_id, ev.placement, count(*) filter (where event = 'view') as views, count(*) filter (where event = 'click') as clicks
+    from ev group by ev.site_id, ev.placement
+  )
+  select jsonb_build_object(
+    'from', v_from, 'to', v_today, 'unit', v_unit,
+    'totals', (select jsonb_build_object('views', count(*) filter (where event = 'view'), 'clicks', count(*) filter (where event = 'click'),
+                                         'products', count(distinct product_id)) from ev),
+    'prev', case when v_days is null then null else
+              (select jsonb_build_object('views', count(*) filter (where event = 'view'), 'clicks', count(*) filter (where event = 'click'))
+               from hub_events e where e.event_at >= v_prev and e.event_at < v_start) end,
+    'series', (select coalesce(jsonb_agg(jsonb_build_object('t', b.bucket, 'views', coalesce(c.views, 0), 'clicks', coalesce(c.clicks, 0))
+                 order by b.bucket), '[]')
+               from buckets b left join (select bucket, count(*) filter (where event = 'view') as views,
+                                                count(*) filter (where event = 'click') as clicks
+                                         from ev group by bucket) c using (bucket)),
+    'top', (select coalesce(jsonb_agg(jsonb_build_object('id', t.product_id, 'title', hp.title, 'image_url', hp.image_url,
+                 'status', hp.status, 'source', hp.source, 'views', t.views, 'clicks', t.clicks) order by t.clicks desc, t.views desc, t.product_id), '[]')
+            from top t join hub_products hp on hp.id = t.product_id),
+    'placements', (select coalesce(jsonb_agg(jsonb_build_object('site', coalesce(s.name, ''), 'site_key', coalesce(s.key, ''),
+                 'placement', pl.placement, 'views', pl.views, 'clicks', pl.clicks) order by pl.clicks desc, pl.views desc), '[]')
+            from pl left join hub_sites s on s.id = pl.site_id)
+  ) into r;
+  return r;
+end;
+$$;
+revoke all on function public.hub_dashboard(integer) from public;
+grant execute on function public.hub_dashboard(integer) to authenticated;

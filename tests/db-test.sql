@@ -229,3 +229,124 @@ do $$ begin
   assert hub_product_info(array[(select id from hub_products where source_id = '77')]) -> 0 -> 'images' = '["https://cdn.example/1.jpg"]';
 end $$;
 reset role;
+
+-- ---------- ตั้งค่า AI: คีย์ไม่ถูกส่งกลับ, เว้นว่าง = ใช้คีย์เดิม, เฉพาะแอดมิน ----------
+set request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
+set role authenticated;
+do $$
+declare r jsonb;
+begin
+  assert hub_ai_settings() = '{"has_key": false}', 'ยังไม่ตั้ง';
+  r := hub_save_ai_settings('{"preset": "claude", "provider": "anthropic", "model": "claude-haiku-5-5", "api_key": " sk-ant-abcd1234 "}');
+  assert r = '{"preset": "claude", "provider": "anthropic", "model": "claude-haiku-5-5", "base_url": "", "has_key": true, "key_hint": "1234"}', format('ได้ %s', r);
+  assert (select value ->> 'api_key' from hub_settings where key = 'ai') = 'sk-ant-abcd1234';
+  r := hub_save_ai_settings('{"preset": "deepseek", "provider": "OpenAI", "model": "deepseek-chat", "base_url": "https://api.deepseek.com", "api_key": ""}');
+  assert r ->> 'provider' = 'openai' and r ->> 'key_hint' = '1234', 'คีย์ว่างต้องใช้คีย์เดิม';
+  assert not (r ? 'api_key');
+  r := hub_save_ai_settings('{"provider": "evil", "clear_key": true, "api_key": "x"}');
+  assert r ->> 'provider' = 'anthropic' and r -> 'has_key' = 'false', format('ลบคีย์ ได้ %s', r);
+  perform hub_save_ai_settings('{"provider": "anthropic", "api_key": "sk-ant-zzzz9999"}');
+end $$;
+reset role;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-000000000002';
+set role authenticated;
+do $$ begin
+  assert hub_ai_settings() = '{"has_key": false}', 'คนที่ไม่ใช่แอดมินต้องไม่เห็นค่า';
+  assert (select count(*) from hub_settings) = 0;
+  begin
+    perform hub_save_ai_settings('{"api_key": "steal"}');
+    raise exception 'คนที่ไม่ใช่แอดมินบันทึกได้';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+set role anon;
+do $$ begin
+  begin
+    perform hub_ai_settings();
+    raise exception 'anon เรียกได้';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+do $$ begin
+  assert (select value ->> 'api_key' from hub_settings where key = 'ai') = 'sk-ant-zzzz9999';
+end $$;
+
+-- ---------- แดชบอร์ดสถิติ ----------
+delete from hub_events;
+insert into hub_events (event_at, event, product_id, site_id, placement)
+select now() - interval '1 hour', 'view', id, 1, 'feed' from hub_products where source_id = '77'
+union all select now() - interval '1 hour', 'click', id, 1, 'feed' from hub_products where source_id = '77'
+union all select now() - interval '1 hour', 'click', id, null, '' from hub_products where source_id = '77'
+union all select now() - interval '40 days', 'click', id, 1, 'feed' from hub_products where source_id = '77'
+union all select now() - interval '400 days', 'view', id, 1, 'detail' from hub_products where source_id = '77';
+set request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
+set role authenticated;
+do $$
+declare r jsonb;
+begin
+  r := hub_dashboard(30);
+  assert r ->> 'unit' = 'day' and jsonb_array_length(r -> 'series') = 30, format('30 วันต้องได้ 30 จุด ได้ %s', jsonb_array_length(r -> 'series'));
+  assert r -> 'totals' = '{"views": 1, "clicks": 2, "products": 1}', format('totals %s', r -> 'totals');
+  assert r -> 'prev' = '{"views": 0, "clicks": 1}', format('prev %s', r -> 'prev');
+  assert (r -> 'series' -> -1 ->> 'clicks')::int + (r -> 'series' -> -2 ->> 'clicks')::int = 2;
+  assert jsonb_array_length(r -> 'top') = 1 and r -> 'top' -> 0 ->> 'clicks' = '2';
+  assert jsonb_array_length(r -> 'placements') = 2, format('placements %s', r -> 'placements');
+  assert r -> 'placements' -> 0 ->> 'placement' = 'feed' and r -> 'placements' -> 0 ->> 'site_key' <> '';
+  r := hub_dashboard(0);
+  assert r ->> 'unit' = 'month' and r -> 'prev' = 'null' and r -> 'totals' ->> 'views' = '2' and r -> 'totals' ->> 'clicks' = '3', format('ทั้งหมด %s', r -> 'totals');
+  assert jsonb_array_length(r -> 'series') between 13 and 15;
+  r := hub_dashboard(7);
+  assert jsonb_array_length(r -> 'series') = 7;
+end $$;
+reset role;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-000000000002';
+set role authenticated;
+do $$ begin
+  assert hub_dashboard(30) -> 'totals' ->> 'clicks' = '0', 'คนที่ไม่ใช่แอดมินต้องไม่เห็นสถิติ';
+end $$;
+reset role;
+
+-- ---------- ปิด/ลดการแสดงทั้งหมวด ----------
+set request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
+set role authenticated;
+update hub_categories set ad_level = 0 where name = 'แฟชั่นผู้หญิง';
+reset role;
+set role anon;
+do $$
+declare r jsonb; ids bigint[]; i integer; few integer := 0;
+begin
+  for i in 1..40 loop
+    r := hub_ads('transfer', 'detail');
+    assert (r -> 'ads' -> 0 ->> 'id')::bigint not in (1, 2, 3), format('หมวดที่ปิด (รวมหมวดย่อย) ต้องไม่ถูกสุ่ม ได้ %s', r -> 'ads');
+  end loop;
+  r := hub_ads('transfer', 'feed');
+  select array_agg((a ->> 'id')::bigint) into ids from jsonb_array_elements(r -> 'ads') a;
+  assert ids = '{4}', format('จุดที่เลือกแต่หมวดที่ปิด เหลือแค่ปักหมุด ได้ %s', ids);
+  r := hub_ads('transfer', 'detail', '', 1, '{}', '{3}');
+  assert r -> 'ads' -> 0 ->> 'id' = '3', 'ระบุรหัสสินค้ามาตรงๆ ยังแสดง';
+end $$;
+reset role;
+update hub_categories set ad_level = 2 where name = 'แฟชั่นผู้หญิง';
+update hub_categories set ad_level = 1 where name = 'คอมพิวเตอร์';
+set role anon;
+do $$
+declare r jsonb; i integer; comp integer := 0;
+begin
+  -- คอมพิวเตอร์ (4, 5 น้ำหนักสูง) แสดงน้อย: ขึ้นน้อยกว่าตอนปกติ (ปกติราว 340/400 คาดว่าเหลือราว 235)
+  for i in 1..400 loop
+    r := hub_ads('transfer', 'detail');
+    if (r -> 'ads' -> 0 ->> 'id')::bigint in (4, 5) then comp := comp + 1; end if;
+  end loop;
+  assert comp between 150 and 290, format('แสดงน้อยต้องลดโอกาสแต่ยังขึ้นได้ ได้ %s/400', comp);
+end $$;
+reset role;
+update hub_categories set ad_level = 2;
+do $$ begin
+  begin
+    update hub_categories set ad_level = 5;
+    raise exception 'ad_level นอกช่วงต้องไม่ผ่าน';
+  exception when check_violation then null;
+  end;
+end $$;
