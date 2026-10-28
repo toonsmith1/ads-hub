@@ -170,6 +170,16 @@
   }
 
   const isHttp = (u) => /^https?:\/\//i.test(String(u || ''));
+  // ลิงก์ affiliate (ลิงก์สั้น s.shopee.* / shope.ee / shp.ee หรือมีพารามิเตอร์ affiliate) ห้ามเปิด
+  // เพราะ Shopee นับเป็นคลิกในรายงาน affiliate
+  const isAffiliateLink = (u) => {
+    try {
+      const x = new URL(String(u));
+      return /^(s\.shopee\.|shope\.ee$|shp\.ee$)/i.test(x.hostname)
+        || /(^|[?&])(aff|af_|affiliate|utm_source=an_|mmp_pid)/i.test(x.search);
+    } catch (_) { return false; }
+  };
+  const canOpen = (u) => isHttp(u) && !isAffiliateLink(u);
 
   function waitForLoad(tabId, timeout) {
     return new Promise(resolve => {
@@ -184,14 +194,15 @@
 
   const ProductDetailService = {
     extract,
+    isAffiliateLink,
 
     /**
-     * urls: หน้าที่จะลองตามลำดับ (เช่น ลิงก์จากการ์ดสินค้า แล้วค่อยลิงก์ affiliate)
+     * urls: หน้าที่จะลองตามลำดับ (เช่น ลิงก์จากการ์ดสินค้า) ลิงก์ affiliate จะถูกข้ามเสมอ
      * productId: รหัสสินค้า ใช้หาลิงก์ไปหน้าสินค้าจริงเมื่อหน้าที่เปิดไม่ใช่หน้าสินค้า
      * คืน {found, url, title, description, images, details} (found = false ถ้าหาหน้าสินค้าไม่เจอ)
      */
     async fetch(urls, productId, options = {}) {
-      const queue = [...new Set((urls || []).filter(isHttp))];
+      const queue = [...new Set((urls || []).filter(canOpen))];
       const tried = new Set();
       let tab = null;
       try {
@@ -221,7 +232,7 @@
           if (!result) continue;
           if (result.isProduct) return { found: true, ...result };
           // ไม่ใช่หน้าสินค้า แต่ลิงก์ไปหน้าที่มีรหัสสินค้านี้: ตามไปก่อนลองลิงก์ถัดไปที่ส่งมา
-          queue.splice(i + 1, 0, ...result.links.filter(l => !tried.has(l) && !queue.includes(l)));
+          queue.splice(i + 1, 0, ...result.links.filter(l => canOpen(l) && !tried.has(l) && !queue.includes(l)));
         }
       } finally {
         if (tab) chrome.tabs.remove(tab.id).catch(() => {});

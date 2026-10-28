@@ -161,8 +161,7 @@
         <div class="shopee-dl-option-row">
           <span>🖼️ รูปทั้งหมดและรายละเอียด:</span>
           <select id="dl-detail-select" title="เปิดหน้าสินค้าทีละชิ้นในแท็บเบื้องหลัง (ช้าลงชิ้นละหลายวินาที)">
-            <option value="detail-noaff" selected>เปิดหน้าสินค้า (ไม่ใช้ลิงก์ affiliate)</option>
-            <option value="detail">เปิดหน้าสินค้า ไม่เจอให้ไปทางลิงก์ affiliate (Shopee จะนับเป็นคลิก)</option>
+            <option value="detail" selected>เปิดหน้าสินค้า (ไม่ใช้ลิงก์ affiliate)</option>
             <option value="none">ไม่ต้อง (รูปปกอย่างเดียว เร็วกว่า)</option>
           </select>
         </div>
@@ -233,28 +232,27 @@
 
       const scraped = await scrapeListing(maxPages, delayMs, detailMode === 'none' ? 85 : 45);
       if (detailMode !== 'none' && scraped.length && !isCancelled) {
-        await fetchDetails(scraped, detailMode === 'detail', delayMs);
+        await fetchDetails(scraped, delayMs);
       }
       return scraped;
     }
 
-    // หน้าที่จะเปิดหาข้อมูลสินค้า: ลิงก์ของการ์ด (หน้าสินค้าหรือหน้าสินค้าในพอร์ทัล) ก่อน
-    // ลิงก์ affiliate ไว้ท้ายสุด เพราะเปิดแล้ว Shopee อาจนับเป็นคลิกในรายงาน affiliate
-    function detailUrls(p, useAffiliate) {
+    // หน้าที่จะเปิดหาข้อมูลสินค้า: ลิงก์ของการ์ด (หน้าสินค้าหรือหน้าสินค้าในพอร์ทัล) เท่านั้น
+    // ไม่เปิดลิงก์ affiliate เด็ดขาด เพราะ Shopee จะนับเป็นคลิกในรายงาน affiliate
+    function detailUrls(p) {
       const here = window.location.href.split('#')[0];
       const urls = [];
       if (/^https?:\/\//i.test(p.longLink || '') && p.longLink.split('#')[0] !== here) urls.push(p.longLink);
-      if (useAffiliate && /^https?:\/\//i.test(p.shortLink || '') && !urls.includes(p.shortLink) && p.shortLink.split('#')[0] !== here) urls.push(p.shortLink);
       return urls;
     }
 
     // เปิดหน้าสินค้าทีละชิ้นในแท็บเบื้องหลัง เอารูปทั้งหมด คำอธิบาย และข้อมูลจำเพาะ (สำหรับทำรีวิว)
-    async function fetchDetails(products, useAffiliate, delayMs) {
+    async function fetchDetails(products, delayMs) {
       let found = 0;
       for (let i = 0; i < products.length; i++) {
         if (isCancelled) break;
         const p = products[i];
-        const urls = detailUrls(p, useAffiliate);
+        const urls = detailUrls(p);
         const titleCut = (p.title || '').substring(0, 18);
         statusText.textContent = `🖼️ [${i + 1}/${products.length}] เปิดหน้าสินค้า ดึงรูปและรายละเอียด: ${titleCut}...`;
         if (urls.length) {
