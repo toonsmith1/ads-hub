@@ -10,6 +10,8 @@
 
 // ส่งสินค้าเข้าคลังโฆษณากลาง (Ad Hub)
 importScripts('libs/hub-service.js');
+// เปิดหน้าสินค้าเพื่อดึงรูปทั้งหมดและรายละเอียด (ข้อมูลรีวิว)
+importScripts('libs/product-detail-service.js');
 
 /**
  * Injected helper into Threads tab to find composer, focus, and paste caption
@@ -86,6 +88,13 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
       HubService.importProducts(request.products, request.keyword, request.status)
         .then(result => sendResponse({ success: true, ...result }))
         .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+    }
+
+    if (request.action === 'FETCH_PRODUCT_DETAIL') {
+      ProductDetailService.fetch(request.urls, request.productId)
+        .then(detail => sendResponse({ success: true, ...detail }))
+        .catch(err => sendResponse({ success: false, found: false, error: err.message }));
       return true;
     }
 

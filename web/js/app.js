@@ -473,6 +473,7 @@ function renderDrawer() {
             ${field("เริ่มแสดง", input("starts_on", 'type="date"'))}
             ${field("หยุดแสดง", input("ends_on", 'type="date"'))}
           </div>
+          ${reviewSection(p)}
           ${field("โน้ต", `<textarea data-d="note" rows="2" class="${INPUT} h-auto py-2 mt-1 w-full">${esc(p.note || "")}</textarea>`)}
           ${p.id ? `<div class="text-xs text-slate-600">${STATS_DAYS} วันล่าสุด: ${statsText(p.id)}</div>` : ""}
           ${p.id ? `<div>
@@ -490,6 +491,30 @@ function renderDrawer() {
         </footer>
       </section>
     </div>`;
+}
+
+// รูปทั้งหมด รายละเอียด และข้อมูลจำเพาะจากหน้าสินค้า (extension ดึงมา) ใช้เป็นข้อมูลทำรีวิว
+function reviewSection(p) {
+  const imgs = p.images || [];
+  const d = p.details || {};
+  const facts = [
+    d.brand && `แบรนด์ ${esc(d.brand)}`,
+    d.rating && `คะแนน ${esc(d.rating)}${d.rating_count ? ` (${Number(d.rating_count).toLocaleString("th-TH")} รีวิว)` : ""}`,
+    d.detail_url && `<a href="${esc(d.detail_url)}" target="_blank" rel="noopener" class="text-brand-600 hover:underline">หน้าสินค้า</a>`,
+  ].filter(Boolean);
+  const specs = Object.entries(d.specs || {});
+  return `<div class="space-y-2" data-review>
+    <div class="text-xs font-medium text-slate-600">รูปทั้งหมดจากหน้าสินค้า (${imgs.length})
+      ${imgs.length ? `<span class="font-normal text-slate-400">· กดรูปเพื่อใช้เป็นรูปปก</span>` : ""}</div>
+    ${imgs.length ? `<div class="grid grid-cols-5 gap-2">${imgs.map(u => `
+      <button type="button" data-act="use-image" data-url="${esc(u)}" title="ใช้เป็นรูปปก"
+        class="aspect-square rounded-lg overflow-hidden border ${u === p.image_url ? "border-brand-500 ring-2 ring-brand-200" : "border-slate-200"}">
+        <img src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer" class="w-full h-full object-cover"></button>`).join("")}</div>`
+      : `<div class="text-[11px] text-slate-400">ยังไม่มี ส่งเข้าคลังจาก extension โดยเลือก "เปิดหน้าสินค้า" เพื่อดึงรูปทั้งหมดและรายละเอียด</div>`}
+    ${facts.length ? `<div class="text-xs text-slate-600">${facts.join(" · ")}</div>` : ""}
+    ${specs.length ? `<dl class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-xs">${specs.map(([k, v]) => `<dt class="text-slate-500">${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` : ""}
+    ${field("รายละเอียดสินค้า", `<textarea data-d="description" rows="6" class="${INPUT} h-auto py-2 mt-1 w-full">${esc(p.description || "")}</textarea>`)}
+  </div>`;
 }
 
 function readDrawerInputs() {
@@ -917,6 +942,7 @@ async function onClick(e) {
     case "save-placement": savePlacement(el); break;
     case "delete-placement": deletePlacement(Number(el.dataset.id)); break;
     case "copy-embed": copyEmbed(el); break;
+    case "use-image": if (state.drawer) { readDrawerInputs(); state.drawer.image_url = el.dataset.url; renderDrawer(); } break;
     case "signout": await HubAPI.signOut(); boot(); break;
   }
 }

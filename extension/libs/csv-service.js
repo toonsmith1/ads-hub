@@ -224,6 +224,33 @@
             console.warn(`ดาวน์โหลดรูปภาพสินค้าลำดับที่ ${i} ไม่สำเร็จ:`, e);
           }
         }
+        // รูปทั้งหมดและรายละเอียดจากหน้าสินค้า (ถ้าดึงมา) แยกโฟลเดอร์ละสินค้า ใช้ทำรีวิว
+        const gallery = Array.isArray(p.images) ? p.images : [];
+        if (gallery.length || p.description) {
+          const name = (p.title || p.safeTitle || p.rawTitle || `product_${i+1}`).replace(/[^a-zA-Z0-9_\-\u0E00-\u0E7F]/g, '_').substring(0, 35);
+          const dir = zip.folder('review').folder(`${String(i + 1).padStart(3, '0')}_${name}`);
+          for (let j = 0; j < gallery.length; j++) {
+            if (options.isCancelled && options.isCancelled()) break;
+            try {
+              const blob = await (await fetch(gallery[j])).blob();
+              const ext = (gallery[j].match(/\.(jpg|jpeg|png|webp)(?=$|[?#])/i) || [, 'jpg'])[1];
+              dir.file(`${String(j + 1).padStart(2, '0')}.${ext}`, blob);
+            } catch (e) {
+              console.warn(`ดาวน์โหลดรูปที่ ${j + 1} ของสินค้าลำดับที่ ${i + 1} ไม่สำเร็จ:`, e);
+            }
+          }
+          const d = p.details || {};
+          const specs = Object.entries(d.specs || {}).map(([k, v]) => `${k}: ${v}`).join('\n');
+          dir.file('รายละเอียด.txt', [
+            p.title || p.rawTitle || '',
+            `ราคา: ${p.price || '-'}  ยอดขาย: ${p.sold || '-'}${d.rating ? `  คะแนน: ${d.rating}${d.rating_count ? ` (${d.rating_count} รีวิว)` : ''}` : ''}${d.brand ? `  แบรนด์: ${d.brand}` : ''}`,
+            `ลิงก์ affiliate: ${p.shortLink || p.link || '-'}`,
+            d.detail_url ? `หน้าสินค้า: ${d.detail_url}` : '',
+            specs ? `\nข้อมูลจำเพาะ\n${specs}` : '',
+            p.description ? `\nรายละเอียดสินค้า\n${p.description}` : '',
+            gallery.length ? `\nรูปทั้งหมด\n${gallery.join('\n')}` : '',
+          ].filter(Boolean).join('\n'));
+        }
         if (typeof options.onProgress === 'function') {
           options.onProgress(i + 1, products.length);
         }

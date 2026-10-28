@@ -52,6 +52,12 @@ create table if not exists public.hub_products (
   last_seen_at timestamptz not null default now()
 );
 
+-- รูปทั้งหมดและรายละเอียดจากหน้าสินค้า ใช้เป็นข้อมูลทำรีวิว (เพิ่มทีหลัง จึงใช้ add column ให้อัปเกรดจากรุ่นก่อนได้)
+alter table public.hub_products add column if not exists images text[] not null default '{}';
+alter table public.hub_products add column if not exists description text not null default '';
+-- ข้อมูลอื่นจากหน้าสินค้า เช่น {brand, rating, rating_count, specs: {ชื่อ: ค่า}, detail_url, detail_at}
+alter table public.hub_products add column if not exists details jsonb not null default '{}';
+
 create unique index if not exists hub_products_source_key on public.hub_products (source, source_id) where source_id <> '';
 create unique index if not exists hub_products_link_key on public.hub_products (link) where source_id = '';
 create index if not exists hub_products_status_idx on public.hub_products (status, updated_at desc);
@@ -111,8 +117,10 @@ create policy "admin write" on public.hub_products for all to authenticated
   using (public.hub_is_admin()) with check (public.hub_is_admin());
 
 -- ---------- นำเข้าสินค้าทีละหลายรายการ ----------
--- p_items: [{title, link, source, source_id, price, price_text, commission, sold_text, shop, image_url, category, search_keyword}]
+-- p_items: [{title, link, source, source_id, price, price_text, commission, sold_text, shop, image_url, category, search_keyword,
+--            images: [url], description, details: {}}]
 -- มีอยู่แล้ว (แหล่ง + รหัสเดียวกัน หรือลิงก์เดียวกันเมื่อไม่มีรหัส): อัปเดตราคา ค่าคอม ยอดขาย ไม่แตะหมวด สถานะ และสิ่งที่แอดมินแก้ไว้
+--   รูปทั้งหมด รายละเอียด และ details: ใช้ของใหม่เมื่อส่งมา (หน้าสินค้าเปลี่ยนได้) ส่งมาว่าง = คงของเดิม
 -- คืนค่า {added, updated, skipped, errors: [{row, error}]}
 create or replace function public.hub_import_products(p_items jsonb, p_status text default 'pending')
 returns jsonb
@@ -124,6 +132,7 @@ declare
   idx integer := 0;
   v_title text; v_link text; v_source text; v_source_id text; v_cat bigint; v_existing bigint;
   v_haystack text;
+  v_images text[]; v_desc text; v_details jsonb;
   added integer := 0; updated integer := 0; skipped integer := 0;
   errors jsonb := '[]'::jsonb;
 begin
@@ -148,6 +157,16 @@ begin
     end if;
     v_source := lower(left(trim(coalesce(item ->> 'source', '')), 40));
     v_source_id := left(trim(coalesce(item ->> 'source_id', '')), 80);
+    -- รูป: เฉพาะ http(s) ไม่ซ้ำ ตามลำดับเดิม ไม่เกิน 30 รูป
+    v_images := '{}';
+    if jsonb_typeof(item -> 'images') = 'array' then
+      select coalesce(array_agg(u order by o), '{}') into v_images from (
+        select u, min(o) as o from jsonb_array_elements_text(item -> 'images') with ordinality as t(u, o)
+        where u ~* '^https?://' group by u order by min(o) limit 30
+      ) s;
+    end if;
+    v_desc := left(trim(coalesce(item ->> 'description', '')), 20000);
+    v_details := case when jsonb_typeof(item -> 'details') = 'object' then item -> 'details' else '{}'::jsonb end;
 
     if v_source_id <> '' then
       select id into v_existing from hub_products where source = v_source and source_id = v_source_id;
@@ -163,7 +182,11 @@ begin
           commission = coalesce(nullif(item ->> 'commission', '')::numeric, commission),
           sold_text = coalesce(nullif(item ->> 'sold_text', ''), sold_text),
           shop = case when shop = '' then coalesce(item ->> 'shop', '') else shop end,
-          image_url = case when image_url = '' then coalesce(item ->> 'image_url', '') else image_url end,
+          image_url = case when image_url <> '' then image_url
+                           else coalesce(nullif(item ->> 'image_url', ''), v_images[1], '') end,
+          images = case when cardinality(v_images) > 0 then v_images else images end,
+          description = case when v_desc <> '' then v_desc else description end,
+          details = details || v_details,
           link = v_link,
           last_seen_at = now()
         where id = v_existing;
@@ -181,12 +204,13 @@ begin
           order by length(k) desc, c.sort limit 1;
         end if;
         insert into hub_products (source, source_id, title, price, price_text, commission, sold_text, shop,
-                                  link, image_url, category_id, status, search_keyword)
+                                  link, image_url, category_id, status, search_keyword, images, description, details)
         values (v_source, v_source_id, v_title,
                 nullif(item ->> 'price', '')::numeric, coalesce(item ->> 'price_text', ''),
                 nullif(item ->> 'commission', '')::numeric, coalesce(item ->> 'sold_text', ''),
-                left(coalesce(item ->> 'shop', ''), 80), v_link, coalesce(item ->> 'image_url', ''),
-                v_cat, p_status, left(coalesce(item ->> 'search_keyword', ''), 120));
+                left(coalesce(item ->> 'shop', ''), 80), v_link,
+                coalesce(nullif(item ->> 'image_url', ''), v_images[1], ''),
+                v_cat, p_status, left(coalesce(item ->> 'search_keyword', ''), 120), v_images, v_desc, v_details);
         added := added + 1;
       end if;
     exception when others then

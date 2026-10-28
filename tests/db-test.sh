@@ -22,8 +22,14 @@ create function auth.uid() returns uuid language sql stable as
   $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
 grant usage on schema auth to anon, authenticated;
 SQL
+# อัปเกรดจากรุ่นก่อน (เฟส 3 ก่อนเพิ่มรูปทั้งหมด/รายละเอียด) ที่มีสินค้าอยู่แล้ว ต้องรันทับได้
+if git cat-file -e 03d6883:supabase/schema.sql 2>/dev/null; then
+  git show 03d6883:supabase/schema.sql | "${PSQL[@]}" >/dev/null
+  "${PSQL[@]}" -c "insert into hub_products (id, title, link) values (999, 'ของเดิม', 'https://example.com/old')"
+fi
 # รันสองรอบ: ต้องรันซ้ำได้โดยไม่พัง
 "${PSQL[@]}" -f supabase/schema.sql >/dev/null
 "${PSQL[@]}" -f supabase/schema.sql >/dev/null
+"${PSQL[@]}" -c "do \$\$ begin assert (select images = '{}' and description = '' and details = '{}' from hub_products where id = 999) is not false; end \$\$; delete from hub_products where id = 999"
 "${PSQL[@]}" -f tests/db-test.sql
 echo "db-test: ผ่านทั้งหมด"

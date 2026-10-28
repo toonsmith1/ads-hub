@@ -25,7 +25,8 @@
     "activeTab",
     "storage",
     "downloads",
-    "tabs"
+    "tabs",
+    "scripting"
   ],
   "host_permissions": [
     "*://affiliate.shopee.co.th/*",
