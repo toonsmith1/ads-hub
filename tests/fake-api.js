@@ -17,6 +17,11 @@
     category_id: i % 3 === 0 ? 2 : i % 3 === 1 ? 3 : (i % 2 ? 1 : null), tags: [], status: ["active", "pending", "active", "paused"][i % 4],
     weight: 1, starts_on: null, ends_on: null, note: "", search_keyword: "", created_at: now(), updated_at: new Date(Date.now() - i * 3600e3).toISOString(),
   }));
+  // สินค้าแรกมีรูปทั้งหมดและรายละเอียดจากหน้าสินค้า (extension ดึงมา)
+  Object.assign(products[0], {
+    images: [img(0), img("g2"), img("g3")], description: "ผ้าทวิตหนา\nมี 3 สี",
+    details: { brand: "Geebeety", rating: 4.8, rating_count: 1520, specs: { "ส่งจาก": "กรุงเทพมหานคร" }, detail_url: "https://shopee.co.th/coat-i.1.9000" },
+  });
   const legacy = [
     { type: "ad", title: "กางเกง UNIQLO แท้ (เอว 27-30)", text: "ราคา ฿350", href: "https://s.shopee.co.th/legacy1", image: img(1), sponsor: "Shopee", enabled: true },
     { type: "ad", title: "เครื่องบดสับไร้สาย", text: "ราคา ฿199", href: "https://s.shopee.co.th/legacy2", image: img(2), sponsor: "", enabled: false },

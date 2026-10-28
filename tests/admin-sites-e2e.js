@@ -45,7 +45,23 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", "
   const drawer = await page.textContent("#drawer");
   assert(drawer.includes("รหัส Ad Hub #3") && drawer.includes("คลิก 3 · แสดง 30"), drawer);
   assert.equal(await page.textContent("[data-embed='product-3']"), '<div data-adhub="review" data-product="3"></div>');
+  // ไม่มีรูปจากหน้าสินค้า: บอกวิธีดึง
+  assert(drawer.includes("รูปทั้งหมดจากหน้าสินค้า (0)") && drawer.includes("เปิดหน้าสินค้า"), drawer);
   await page.click("#drawer header [data-act=close-drawer]");
+
+  // สินค้าที่มีรูปทั้งหมดและรายละเอียด: เห็นรูป คะแนน ข้อมูลจำเพาะ แก้รายละเอียดและเลือกรูปปกได้
+  await page.click("article[data-id='1']");
+  assert.equal(await page.locator("#drawer [data-act=use-image]").count(), 3);
+  const review = await page.textContent("#drawer [data-review]");
+  assert(review.includes("แบรนด์ Geebeety") && review.includes("คะแนน 4.8 (1,520 รีวิว)") && review.includes("ส่งจากกรุงเทพมหานคร"), review);
+  assert.equal(await page.inputValue("#drawer [data-d=description]"), "ผ้าทวิตหนา\nมี 3 สี");
+  await page.fill("#drawer [data-d=description]", "ผ้าทวิตหนา ใส่สบาย");
+  await page.click("#drawer [data-act=use-image][data-url$='g2.png']");
+  assert.equal(await page.inputValue("#drawer [data-d=image_url]"), "https://img.example/g2.png");
+  assert.equal(await page.inputValue("#drawer [data-d=description]"), "ผ้าทวิตหนา ใส่สบาย", "เลือกรูปแล้วข้อความที่พิมพ์ต้องไม่หาย");
+  await page.click("#drawer [data-act=save-drawer]");
+  await page.waitForFunction(() => window.__fake.products[0].image_url.endsWith("g2.png"));
+  assert.equal(await page.evaluate(() => window.__fake.products[0].description), "ผ้าทวิตหนา ใส่สบาย");
 
   // เปิดหน้าต่างเว็บ: เห็นเว็บเดิม จุดที่วาง ชื่อสินค้าที่ปักหมุด และโค้ดฝัง
   await page.click("[data-act=open-sites]");
