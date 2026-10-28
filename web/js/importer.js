@@ -128,6 +128,8 @@ const HubImport = (() => {
       source_id: "",
       price: firstNumber(s.text),
       price_text: String(s.text || "").replace(/^ราคา\s*/, "").trim(),
+      // ข้อความใต้หัวข้อของโฆษณาเดิมเก็บทั้งก้อนเป็นคำโปรย ให้เว็บแสดงได้เหมือนเดิม
+      caption: String(s.text || "").trim(),
       commission: "",
       sold_text: "",
       shop: String(s.sponsor || "").trim(),
