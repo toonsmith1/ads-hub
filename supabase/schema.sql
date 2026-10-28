@@ -125,6 +125,7 @@ create policy "admin write" on public.hub_products for all to authenticated
 --            images: [url], description, details: {}, caption}]
 -- มีอยู่แล้ว (แหล่ง + รหัสเดียวกัน หรือลิงก์เดียวกันเมื่อไม่มีรหัส): อัปเดตราคา ค่าคอม ยอดขาย ไม่แตะหมวด สถานะ และสิ่งที่แอดมินแก้ไว้
 --   รูปทั้งหมด รายละเอียด และ details: ใช้ของใหม่เมื่อส่งมา (หน้าสินค้าเปลี่ยนได้) ส่งมาว่าง = คงของเดิม
+--   รูปที่แอดมินลบไว้ (details.removed_images) ไม่ถูกเพิ่มกลับ
 -- คืนค่า {added, updated, skipped, errors: [{row, error}]}
 create or replace function public.hub_import_products(p_items jsonb, p_status text default 'pending')
 returns jsonb
@@ -188,7 +189,10 @@ begin
           shop = case when shop = '' then coalesce(item ->> 'shop', '') else shop end,
           image_url = case when image_url <> '' then image_url
                            else coalesce(nullif(item ->> 'image_url', ''), v_images[1], '') end,
-          images = case when cardinality(v_images) > 0 then v_images else images end,
+          images = case when cardinality(v_images) > 0 then array(
+                     select u from unnest(v_images) with ordinality as t(u, o)
+                     where not coalesce(details -> 'removed_images', '[]'::jsonb) ? u order by o)
+                   else images end,
           description = case when v_desc <> '' then v_desc else description end,
           details = details || v_details,
           caption = case when caption = '' then left(trim(coalesce(item ->> 'caption', '')), 300) else caption end,

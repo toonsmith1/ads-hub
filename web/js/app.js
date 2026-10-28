@@ -506,11 +506,15 @@ function reviewSection(p) {
   const specs = Object.entries(d.specs || {});
   return `<div class="space-y-2" data-review>
     <div class="text-xs font-medium text-slate-600">รูปทั้งหมดจากหน้าสินค้า (${imgs.length})
-      ${imgs.length ? `<span class="font-normal text-slate-400">· กดรูปเพื่อใช้เป็นรูปปก</span>` : ""}</div>
+      ${imgs.length ? `<span class="font-normal text-slate-400">· กดรูปเพื่อใช้เป็นรูปปก · กด × เพื่อลบรูปที่ไม่เอา</span>` : ""}</div>
     ${imgs.length ? `<div class="grid grid-cols-5 gap-2">${imgs.map(u => `
-      <button type="button" data-act="use-image" data-url="${esc(u)}" title="ใช้เป็นรูปปก"
-        class="aspect-square rounded-lg overflow-hidden border ${u === p.image_url ? "border-brand-500 ring-2 ring-brand-200" : "border-slate-200"}">
-        <img src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer" class="w-full h-full object-cover"></button>`).join("")}</div>`
+      <div class="relative aspect-square">
+        <button type="button" data-act="use-image" data-url="${esc(u)}" title="ใช้เป็นรูปปก"
+          class="w-full h-full rounded-lg overflow-hidden border ${u === p.image_url ? "border-brand-500 ring-2 ring-brand-200" : "border-slate-200"}">
+          <img src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer" class="w-full h-full object-cover"></button>
+        <button type="button" data-act="remove-image" data-url="${esc(u)}" title="ลบรูปนี้"
+          class="absolute top-1 right-1 w-6 h-6 rounded-full bg-slate-900/70 hover:bg-red-600 text-white text-sm leading-6">×</button>
+      </div>`).join("")}</div>`
       : `<div class="text-[11px] text-slate-400">ยังไม่มี ส่งเข้าคลังจาก extension โดยเลือก "เปิดหน้าสินค้า" เพื่อดึงรูปทั้งหมดและรายละเอียด</div>`}
     ${facts.length ? `<div class="text-xs text-slate-600">${facts.join(" · ")}</div>` : ""}
     ${specs.length ? `<dl class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-xs">${specs.map(([k, v]) => `<dt class="text-slate-500">${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` : ""}
@@ -528,6 +532,16 @@ function reviewSection(p) {
       <div class="text-[11px] text-slate-400 mt-1">ตรวจข้อความก่อนบันทึก AI อาจเขียนผิด ส่วนแบบสุ่มใช้ได้ทันทีไม่เสียโทเคน</div>
     </div>
   </div>`;
+}
+
+// ลบรูปออกจากรูปทั้งหมด (มีผลเมื่อกดบันทึก) และจำไว้ใน details.removed_images
+// เพื่อให้นำเข้าสินค้าชิ้นเดิมซ้ำแล้วรูปที่ลบไม่กลับมา ถ้าลบรูปที่เป็นรูปปก ใช้รูปถัดไปแทน
+function removeImage(p, url) {
+  p.images = (p.images || []).filter(u => u !== url);
+  const removed = new Set((p.details && p.details.removed_images) || []);
+  removed.add(url);
+  p.details = { ...(p.details || {}), removed_images: [...removed] };
+  if (p.image_url === url) p.image_url = p.images[0] || "";
 }
 
 function readDrawerInputs() {
@@ -981,6 +995,7 @@ async function onClick(e) {
     case "ai-review": writeReview(true); break;
     case "spin-review": writeReview(false); break;
     case "use-image": if (state.drawer) { readDrawerInputs(); state.drawer.image_url = el.dataset.url; renderDrawer(); } break;
+    case "remove-image": if (state.drawer) { readDrawerInputs(); removeImage(state.drawer, el.dataset.url); renderDrawer(); } break;
     case "signout": await HubAPI.signOut(); boot(); break;
   }
 }

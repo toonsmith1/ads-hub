@@ -175,6 +175,14 @@ begin
   assert p.images = '{https://cdn.example/3.jpg}' and p.description = 'รุ่นใหม่';
   assert p.details = '{"brand": "ABC", "rating": 4.9}', format('details ต้องรวมกัน ได้ %s', p.details);
   assert p.image_url = 'https://cdn.example/1.jpg', 'รูปปกเดิมต้องไม่ถูกแทน';
+
+  -- แอดมินลบรูปไว้ (details.removed_images): นำเข้าซ้ำแล้วรูปที่ลบต้องไม่กลับมา
+  update hub_products set images = '{}', details = details || '{"removed_images": ["https://cdn.example/4.jpg"]}' where source_id = '77';
+  r := hub_import_products('[{"title": "หูฟัง J", "link": "https://s.shopee.co.th/j", "source": "shopee", "source_id": "77",
+    "images": ["https://cdn.example/4.jpg", "https://cdn.example/3.jpg"], "details": {"rating": 4.9}}]');
+  select * into p from hub_products where source_id = '77';
+  assert p.images = '{https://cdn.example/3.jpg}', format('รูปที่ลบต้องไม่กลับมา ได้ %s', p.images);
+  assert p.details -> 'removed_images' = '["https://cdn.example/4.jpg"]', 'ต้องจำรูปที่ลบไว้';
 end $$;
 reset role;
 
