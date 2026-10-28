@@ -31,7 +31,9 @@ function listen(handler) {
       if (down) { res.writeHead(503, cors); return res.end("down"); }
       if (req.url === "/rest/v1/rpc/hub_ads") {
         const slots = { feed: 3, detail: 1 }[json.p_placement];
-        const out = slots ? { placement: { key: json.p_placement, slots, positions: [2, 6] }, ads: products.filter(p => !json.p_exclude.includes(p.id)).slice(0, json.p_count || slots) } : { placement: null, ads: [] };
+        // สินค้าที่ขอตามรหัสขึ้นก่อน (ตัวจริงทำใน hub_ads)
+        const pool = [...json.p_products.map(id => products.find(p => p.id === id)), ...products.filter(p => !json.p_products.includes(p.id))];
+        const out = slots ? { placement: { key: json.p_placement, slots, positions: [2, 6] }, ads: pool.filter(p => !json.p_exclude.includes(p.id)).slice(0, json.p_count || slots) } : { placement: null, ads: [] };
         res.writeHead(200, { ...cors, "Content-Type": "application/json" });
         return res.end(JSON.stringify(out));
       }
@@ -60,6 +62,7 @@ function listen(handler) {
       <div id="feed" data-adhub="feed" data-context="ครู"></div>
       <div id="detail" data-adhub="detail"></div>
       <div id="none" data-adhub="nosuch"></div>
+      <div id="review" data-adhub="detail" data-product="8"></div>
       <div style="height:3000px"></div>
       <script src="${hubUrl}/ads.js?site=Transfer" async></script></body>`);
   });
@@ -78,6 +81,8 @@ function listen(handler) {
   const detail = await page.$$eval("#detail .adhub-card", els => els.map(e => e.dataset.adhubId));
   assert.deepEqual(feed.map(f => f.id), ["1", "2", "3"]);
   assert.deepEqual(detail, ["4"], "ช่องที่สองต้องไม่ซ้ำกับช่องแรก");
+  await page.waitForSelector("#review .adhub-card");
+  assert.deepEqual(await page.$$eval("#review .adhub-card", els => els.map(e => e.dataset.adhubId)), ["8"], "data-product ต้องได้ชิ้นที่ขอ");
   assert.equal(feed[0].href, `${apiUrl}/functions/v1/go/1?s=transfer&p=feed`);
   assert.equal(feed[0].rel, "sponsored noopener");
   assert.equal(feed[0].target, "_blank");
@@ -85,7 +90,8 @@ function listen(handler) {
   assert.equal(await page.$eval("#none", el => el.innerHTML), "", "จุดที่ไม่มีต้องว่าง");
 
   const adsCalls = calls.filter(c => c.path === "/rest/v1/rpc/hub_ads");
-  assert.deepEqual(adsCalls[0].body, { p_site: "transfer", p_placement: "feed", p_context: "ครู", p_count: null, p_exclude: [] });
+  assert.deepEqual(adsCalls[0].body, { p_site: "transfer", p_placement: "feed", p_context: "ครู", p_count: null, p_exclude: [], p_products: [] });
+  assert.deepEqual(adsCalls.find(c => c.body.p_products.length).body.p_products, [8]);
   assert.deepEqual(adsCalls[1].body.p_exclude, [1, 2, 3]);
   assert.equal(adsCalls[0].apikey, "sb_publishable_test");
   assert.equal(adsCalls[0].auth, undefined, "คีย์แบบใหม่ไม่ส่งเป็น Bearer");
@@ -93,7 +99,7 @@ function listen(handler) {
   // นับการแสดงเป็นชุดเดียวต่อจุดที่วาง (การ์ดทั้งหมดอยู่ในจอ)
   await new Promise(r => setTimeout(r, 2200));
   const views = calls.filter(c => c.path === "/rest/v1/rpc/hub_log_views");
-  assert.deepEqual(views.map(v => [v.body.p_placement, v.body.p_ids]).sort(), [["detail", [4]], ["feed", [1, 2, 3]]]);
+  assert.deepEqual(views.map(v => [v.body.p_placement, v.body.p_ids]).sort(), [["detail", [4, 8]], ["feed", [1, 2, 3]]]);
   assert(views.every(v => v.body.p_site === "transfer"));
 
   // ใช้ดึงข้อมูลไปวาดเองได้ และ observe() นับการแสดงของการ์ดที่วาดเอง
@@ -106,6 +112,8 @@ function listen(handler) {
     return { positions: out.placement.positions, ids: out.ads.map(a => a.id) };
   });
   assert.deepEqual(custom, { positions: [2, 6], ids: [5, 6] });
+  const picked = await page.evaluate(async () => (await AdHub.load({ placement: "detail", product: "7, x, 7" })).ads.map(a => a.id));
+  assert.deepEqual(picked, [7]);
   await new Promise(r => setTimeout(r, 2200));
   assert.deepEqual(calls.filter(c => c.path === "/rest/v1/rpc/hub_log_views").at(-1).body.p_ids, [5, 6]);
 
