@@ -114,14 +114,20 @@
       }
 
       const current = await this.getProducts();
-      const existingKeys = new Set(
-        current.map(p => (p.shopeeId ? `id:${p.shopeeId}` : `title:${(p.title || p.rawTitle || '').trim().toLowerCase()}`))
-      );
+      const keyOf = p => (p.shopeeId ? `id:${p.shopeeId}` : `title:${(p.title || p.rawTitle || '').trim().toLowerCase()}`);
+      const existing = new Map(current.map(p => [keyOf(p), p]));
 
       const uniqueNew = newProducts.filter(p => {
-        const key = p.shopeeId ? `id:${p.shopeeId}` : `title:${(p.title || p.rawTitle || '').trim().toLowerCase()}`;
-        if (existingKeys.has(key)) return false;
-        existingKeys.add(key);
+        const key = keyOf(p);
+        const old = existing.get(key);
+        if (old) {
+          // ของเดิม: เติมรูปทั้งหมดและรายละเอียดที่เพิ่งดึงจากหน้าสินค้า
+          if (Array.isArray(p.images) && p.images.length) old.images = p.images;
+          if (p.description) old.description = p.description;
+          if (p.details && Object.keys(p.details).length) old.details = { ...(old.details || {}), ...p.details };
+          return false;
+        }
+        existing.set(key, p);
         return true;
       });
 

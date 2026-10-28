@@ -64,6 +64,10 @@
       shop: String(p.shop || '').trim(),
       image_url: isHttp(p.image) ? p.image : (isHttp(p.cleanImgUrl) ? p.cleanImgUrl : ''),
       search_keyword: String(keyword || '').trim().slice(0, 120),
+      // จากหน้าสินค้า (ถ้าเปิดดึงมา) ใช้เป็นข้อมูลรีวิว
+      images: Array.isArray(p.images) ? p.images.filter(isHttp) : [],
+      description: String(p.description || '').trim(),
+      details: p.details && typeof p.details === 'object' ? p.details : {},
     };
   }
 

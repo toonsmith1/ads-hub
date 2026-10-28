@@ -158,6 +158,14 @@
             <option value="1000">ปลอดภัย (1000ms)</option>
           </select>
         </div>
+        <div class="shopee-dl-option-row">
+          <span>🖼️ รูปทั้งหมดและรายละเอียด:</span>
+          <select id="dl-detail-select" title="เปิดหน้าสินค้าทีละชิ้นในแท็บเบื้องหลัง (ช้าลงชิ้นละหลายวินาที)">
+            <option value="detail" selected>เปิดหน้าสินค้า (ไม่เจอให้ไปทางลิงก์ affiliate)</option>
+            <option value="detail-noaff">เปิดหน้าสินค้า (ไม่ใช้ลิงก์ affiliate)</option>
+            <option value="none">ไม่ต้อง (รูปปกอย่างเดียว เร็วกว่า)</option>
+          </select>
+        </div>
       </div>
     `;
 
@@ -174,6 +182,12 @@
     const statusText = ui.querySelector('#dl-status');
     const pagesSelect = ui.querySelector('#dl-pages-select');
     const delaySelect = ui.querySelector('#dl-delay-select');
+    const detailSelect = ui.querySelector('#dl-detail-select');
+    try {
+      const saved = localStorage.getItem('adhub_detail_mode');
+      if (saved && detailSelect.querySelector(`option[value="${saved}"]`)) detailSelect.value = saved;
+    } catch (_) {}
+    detailSelect.onchange = () => { try { localStorage.setItem('adhub_detail_mode', detailSelect.value); } catch (_) {} };
 
     const setProgressBarPercent = (pct) => {
       if (progressBar) {
@@ -214,8 +228,55 @@
     async function runScrapeOperation() {
       const maxPages = parseInt(pagesSelect.value, 10) || 1;
       const delayMs = parseInt(delaySelect.value, 10) || 600;
+      const detailMode = detailSelect.value;
       setProgressBarPercent(5);
 
+      const scraped = await scrapeListing(maxPages, delayMs, detailMode === 'none' ? 85 : 45);
+      if (detailMode !== 'none' && scraped.length && !isCancelled) {
+        await fetchDetails(scraped, detailMode === 'detail', delayMs);
+      }
+      return scraped;
+    }
+
+    // หน้าที่จะเปิดหาข้อมูลสินค้า: ลิงก์ของการ์ด (หน้าสินค้าหรือหน้าสินค้าในพอร์ทัล) ก่อน
+    // ลิงก์ affiliate ไว้ท้ายสุด เพราะเปิดแล้ว Shopee อาจนับเป็นคลิกในรายงาน affiliate
+    function detailUrls(p, useAffiliate) {
+      const here = window.location.href.split('#')[0];
+      const urls = [];
+      if (/^https?:\/\//i.test(p.longLink || '') && p.longLink.split('#')[0] !== here) urls.push(p.longLink);
+      if (useAffiliate && /^https?:\/\//i.test(p.shortLink || '') && !urls.includes(p.shortLink) && p.shortLink.split('#')[0] !== here) urls.push(p.shortLink);
+      return urls;
+    }
+
+    // เปิดหน้าสินค้าทีละชิ้นในแท็บเบื้องหลัง เอารูปทั้งหมด คำอธิบาย และข้อมูลจำเพาะ (สำหรับทำรีวิว)
+    async function fetchDetails(products, useAffiliate, delayMs) {
+      let found = 0;
+      for (let i = 0; i < products.length; i++) {
+        if (isCancelled) break;
+        const p = products[i];
+        const urls = detailUrls(p, useAffiliate);
+        const titleCut = (p.title || '').substring(0, 18);
+        statusText.textContent = `🖼️ [${i + 1}/${products.length}] เปิดหน้าสินค้า ดึงรูปและรายละเอียด: ${titleCut}...`;
+        if (urls.length) {
+          const idMatch = String(p.longLink || '').match(/(\d{6,})(?!.*\d{6,})/);
+          const res = await sendMessage({ action: 'FETCH_PRODUCT_DETAIL', urls, productId: p.shopeeId || (idMatch ? idMatch[1] : '') })
+            .catch(err => ({ success: false, error: err.message }));
+          if (res && res.found) {
+            found++;
+            p.images = res.images || [];
+            p.description = res.description || '';
+            p.details = { ...(res.details || {}), detail_url: res.url, detail_at: new Date().toISOString() };
+            if (!p.image && p.images[0]) { p.image = p.images[0]; p.cleanImgUrl = p.images[0]; }
+          }
+        }
+        setProgressBarPercent(45 + Math.round(((i + 1) / products.length) * 40));
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+      products.detailFound = found;
+      return found;
+    }
+
+    async function scrapeListing(maxPages, delayMs, maxPct) {
       return await ScraperService.scrapeAcrossPages({
         maxPages,
         delayMs,
@@ -228,7 +289,7 @@
             statusText.textContent = `[หน้า ${info.pageNum} | รายการ ${info.itemIndex}/${info.pageItemCount}] ดึงลิงก์: ${titleCut}...`;
           } else if (info.phase === 'item_complete') {
             const totalTarget = Math.max(1, maxPages * info.pageItemCount);
-            const pct = Math.min(85, Math.round((info.totalProcessed / totalTarget) * 85));
+            const pct = Math.min(maxPct, Math.round((info.totalProcessed / totalTarget) * maxPct));
             setProgressBarPercent(pct);
           } else if (info.phase === 'switching_page') {
             statusText.textContent = `➡️ กำลังเปลี่ยนไปหน้า ${info.nextPageNum} อัตโนมัติ...`;
@@ -268,7 +329,7 @@
 
           if (Storage) {
             const result = await Storage.mergeProducts(scraped);
-            statusText.textContent = `🎉 สำเร็จ! บันทึก ${scraped.length} สินค้าลงแดชบอร์ดแล้ว (ใหม่ ${result.addedCount} รายการ)`;
+            statusText.textContent = `🎉 สำเร็จ! บันทึก ${scraped.length} สินค้าลงแดชบอร์ดแล้ว (ใหม่ ${result.addedCount} รายการ)${detailNote(scraped)}`;
           } else {
             // Fallback direct storage
             await new Promise((resolve) => {
@@ -322,6 +383,8 @@
         .find(i => i.offsetParent && i.value && !ui.contains(i));
       return box ? box.value.trim() : '';
     }
+
+    const detailNote = (list) => (typeof list.detailFound === 'number' ? ` · ได้รูปทั้งหมดและรายละเอียด ${list.detailFound}/${list.length}` : '');
 
     const sendMessage = (msg) => new Promise((resolve, reject) => {
       try {
@@ -378,7 +441,7 @@
           if (!res || !res.success) throw new Error(res?.error || 'ส่งไม่สำเร็จ');
 
           setProgressBarPercent(100);
-          statusText.textContent = `🎉 ส่งเข้าคลังแล้ว: ใหม่ ${res.added} · อัปเดตของเดิม ${res.updated}${res.skipped ? ` · ข้าม ${res.skipped} (เอาลิงก์ affiliate ไม่ได้)` : ''}`;
+          statusText.textContent = `🎉 ส่งเข้าคลังแล้ว: ใหม่ ${res.added} · อัปเดตของเดิม ${res.updated}${res.skipped ? ` · ข้าม ${res.skipped} (เอาลิงก์ affiliate ไม่ได้)` : ''}${detailNote(scraped)}`;
           showInPageToast(`📤 ส่งเข้าคลังโฆษณา ใหม่ ${res.added} รายการ อัปเดต ${res.updated} รายการ`);
         } else if (isCancelled) {
           statusText.textContent = `🛑 หยุดการทำงานแล้ว (ยังไม่ได้ส่งเข้าคลัง)`;
