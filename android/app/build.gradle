@@ -1,0 +1,44 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.adhub.clicks"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.adhub.clicks"
+        minSdk 26
+        targetSdk 34
+        // GitHub Actions ใส่เลขรอบ build ให้ ติดตั้งทับรุ่นเก่าได้เลย
+        versionCode Integer.parseInt(System.getenv("GITHUB_RUN_NUMBER") ?: "1")
+        versionName "1.0." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
+    }
+
+    // กุญแจเซ็นแอปเก็บใน repo (private) เพื่อให้ทุกรอบ build เซ็นด้วยกุญแจเดียวกัน ติดตั้งทับได้ไม่ต้องลบแอปเดิม
+    // แอปนี้ไม่ได้ขึ้น Play Store และไม่มีคีย์ลับข้างใน
+    signingConfigs {
+        release {
+            storeFile file("adhub-clicks.keystore")
+            storePassword "adhub-clicks"
+            keyAlias "adhub-clicks"
+            keyPassword "adhub-clicks"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation "androidx.webkit:webkit:1.12.1"
+}

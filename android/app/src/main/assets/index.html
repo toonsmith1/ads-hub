@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>คลิก Ad Hub</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- ตั้งค่าโปรเจกต์ Supabase (ครั้งแรก) -->
+  <section id="setup" class="screen" hidden>
+    <h1>ตั้งค่าครั้งแรก</h1>
+    <p class="muted">ใส่ค่าเดียวกับใน <code>web/config.js</code> ของ Ad Hub (Supabase &gt; Project Settings &gt; API Keys)</p>
+    <form id="setup-form" class="card form">
+      <label>Project URL<input name="url" type="url" required placeholder="https://xxxx.supabase.co" autocomplete="off"></label>
+      <label>Publishable key (หรือ anon key)<input name="key" required placeholder="sb_publishable_..." autocomplete="off"></label>
+      <p class="muted small">ห้ามใช้ Secret key / service_role แอปนี้อ่านอย่างเดียว และเห็นข้อมูลได้เฉพาะเมื่อล็อกอินด้วยบัญชีแอดมิน</p>
+      <p class="error" data-error></p>
+      <button class="primary">บันทึก</button>
+    </form>
+  </section>
+
+  <!-- ล็อกอินด้วยบัญชีแอดมินเดียวกับหน้าจัดการ -->
+  <section id="login" class="screen" hidden>
+    <h1>เข้าสู่ระบบ</h1>
+    <p class="muted">ใช้อีเมลและรหัสผ่านแอดมินเดียวกับหน้าจัดการ Ad Hub</p>
+    <form id="login-form" class="card form">
+      <label>อีเมล<input name="email" type="email" required autocomplete="username"></label>
+      <label>รหัสผ่าน<input name="password" type="password" required autocomplete="current-password"></label>
+      <p class="error" data-error></p>
+      <button class="primary">เข้าสู่ระบบ</button>
+    </form>
+    <button class="link" data-act="setup">เปลี่ยนโปรเจกต์ Supabase</button>
+  </section>
+
+  <!-- หน้าหลัก -->
+  <section id="main" class="screen" hidden>
+    <header class="top">
+      <h1>จำนวนคลิก</h1>
+      <button class="icon" data-act="refresh" aria-label="โหลดใหม่">⟳</button>
+      <button class="icon" data-act="menu" aria-label="เมนู">⋮</button>
+    </header>
+    <div id="menu" class="menu" hidden>
+      <button data-act="logout">ออกจากระบบ</button>
+      <button data-act="setup">เปลี่ยนโปรเจกต์ Supabase</button>
+    </div>
+    <nav class="chips" id="ranges"></nav>
+    <p class="error" id="main-error"></p>
+    <div id="content"></div>
+  </section>
+
+  <!-- รายละเอียดสินค้า -->
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet-body">
+      <button class="icon close" data-act="close-sheet" aria-label="ปิด">✕</button>
+      <div id="sheet-content"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
