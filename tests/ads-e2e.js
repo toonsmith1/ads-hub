@@ -62,7 +62,7 @@ function listen(handler) {
     }
     const file = path.join(WEB, path.normalize(u.pathname));
     if (!file.startsWith(WEB) || !fs.existsSync(file)) { res.writeHead(404); return res.end(); }
-    res.writeHead(200, { "Content-Type": "text/javascript" });
+    res.writeHead(200, { "Content-Type": file.endsWith(".html") ? "text/html; charset=utf-8" : "text/javascript" });
     fs.createReadStream(file).pipe(res);
   });
   const hubUrl = `http://127.0.0.1:${hub.address().port}`;
@@ -158,6 +158,19 @@ function listen(handler) {
   assert.deepEqual([bare.id, bare.images, bare.description, bare.review, bare.details], [1, [], "", "", {}]);
   await new Promise(r => setTimeout(r, 2200));
   assert.deepEqual(calls.filter(c => c.path === "/rest/v1/rpc/hub_log_views").at(-1).body.p_ids, [6, 7]);
+
+  // หน้ารีวิวตัวอย่าง web/review.html: กล่องรีวิวของชิ้นที่ขอ + สินค้าที่คล้ายกัน ชื่อหน้าเป็นชื่อสินค้า
+  const rv = await browser.newPage();
+  rv.on("pageerror", e => errors.push(e.message));
+  await rv.goto(`${hubUrl}/review.html?site=transfer&id=5&placement=detail`);
+  await rv.waitForSelector("#related .adhub-card");
+  assert.equal(await rv.$eval("#review .adhub-review", el => el.dataset.adhubId), "5");
+  assert.deepEqual(await rv.$$eval("#related .adhub-card", els => els.map(e => e.dataset.adhubId)), ["1", "2", "3", "4"]);
+  assert.equal(await rv.title(), "รีวิว สินค้า 5 <b>");
+  assert.equal(await rv.$eval('meta[name="description"]', m => m.content), "ใช้มาเดือนนึง <b>ดีมาก</b>");
+  await rv.goto(`${hubUrl}/review.html?site=transfer`);
+  assert.match(await rv.textContent("#review"), /ใส่ \?site=/);
+  await rv.close();
 
   // คลังกลางล่ม: ใช้ผลครั้งล่าสุดที่เก็บไว้ หน้าไม่พัง
   down = true;

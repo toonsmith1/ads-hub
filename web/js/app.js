@@ -479,7 +479,7 @@ function renderDrawer() {
           ${p.id ? `<div>
             <div class="flex items-center justify-between text-[11px] text-slate-500"><span>โค้ดฝังสินค้านี้ เช่นในหน้ารีวิว (เปลี่ยน review เป็นคีย์จุดที่วางของเว็บนั้น)</span>
               <button data-act="copy-embed" data-id="product-${p.id}" class="text-brand-600 hover:underline">คัดลอก</button></div>
-            <pre class="mt-1 p-2 bg-slate-900 text-slate-100 rounded-lg text-xs whitespace-pre-wrap break-all" data-embed="product-${p.id}">${esc(`<div data-adhub="review" data-product="${p.id}"></div>`)}</pre>
+            <pre class="mt-1 p-2 bg-slate-900 text-slate-100 rounded-lg text-xs whitespace-pre-wrap break-all" data-embed="product-${p.id}">${esc(`<div data-adhub="review" data-product="${p.id}" data-layout="review"></div>`)}</pre>
           </div>` : ""}
           ${p.id ? `<div class="text-[11px] text-slate-400">รหัส Ad Hub #${p.id} (ใช้ปักหมุด) · แหล่ง ${esc(p.source || "-")}${p.source_id ? ` · รหัส ${esc(p.source_id)}` : ""} · เพิ่มเมื่อ ${p.created_at ? new Date(p.created_at).toLocaleString("th-TH") : "-"}</div>` : ""}
         </div>

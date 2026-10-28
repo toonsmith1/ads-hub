@@ -44,7 +44,7 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", "
   await page.click("article[data-id='3']");
   const drawer = await page.textContent("#drawer");
   assert(drawer.includes("รหัส Ad Hub #3") && drawer.includes("คลิก 3 · แสดง 30"), drawer);
-  assert.equal(await page.textContent("[data-embed='product-3']"), '<div data-adhub="review" data-product="3"></div>');
+  assert.equal(await page.textContent("[data-embed='product-3']"), '<div data-adhub="review" data-product="3" data-layout="review"></div>');
   // ไม่มีรูปจากหน้าสินค้า: บอกวิธีดึง
   assert(drawer.includes("รูปทั้งหมดจากหน้าสินค้า (0)") && drawer.includes("เปิดหน้าสินค้า"), drawer);
   await page.click("#drawer header [data-act=close-drawer]");

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>รีวิวสินค้า</title>
+  <meta name="description" content="">
+  <!--
+    หน้ารีวิวตัวอย่าง: review.html?site=<คีย์เว็บ>&id=<รหัสสินค้า>[&placement=review]
+    ดึงสินค้าจาก Ad Hub มาแสดงเป็นกล่องรีวิว (รูปทั้งหมด รีวิว สเปก รายละเอียด ปุ่มซื้อ) และสินค้าหมวดเดียวกันด้านล่าง
+    คัดลอกไฟล์นี้ไปใช้เป็นแม่แบบในเว็บรีวิวได้ แก้ src ของ ads.js ให้ชี้มาที่เว็บ Ad Hub
+  -->
+  <style>
+    :root { --bg: #f8fafc; --fg: #0f172a; --muted: #64748b; --card: #fff; --border: #e2e8f0; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #0b1120; --fg: #e2e8f0; --muted: #94a3b8; --card: #111827; --border: #1f2937;
+              --adhub-bg: #111827; --adhub-fg: #e2e8f0; --adhub-border: #1f2937; --adhub-muted: #94a3b8; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Noto Sans Thai", sans-serif; }
+    main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
+    .panel { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 20px; }
+    h2 { font-size: 1.05rem; margin: 32px 0 12px; }
+    .muted { color: var(--muted); }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <div id="review" class="panel"><p class="muted">กำลังโหลด…</p></div>
+    <section id="related-wrap" hidden>
+      <h2>สินค้าที่คล้ายกัน</h2>
+      <div id="related"></div>
+    </section>
+  </main>
+  <script>
+    (function () {
+      const q = new URLSearchParams(location.search);
+      const site = q.get("site") || "";
+      const id = q.get("id") || "";
+      const placement = q.get("placement") || "review";
+      const box = document.getElementById("review");
+      const empty = (msg) => { box.innerHTML = `<p class="muted">${msg}</p>`; };
+      if (!site || !/^\d+$/.test(id)) return empty("ใส่ ?site=คีย์เว็บ&id=รหัสสินค้า ในลิงก์");
+
+      const s = document.createElement("script");
+      s.src = `ads.js?site=${encodeURIComponent(site)}`;
+      s.onload = async () => {
+        const main = await AdHub.load({ placement, product: id, count: 1, full: true });
+        const a = main.ads[0];
+        if (!a) return empty("ไม่พบสินค้านี้ หรือหยุดแสดงแล้ว");
+        document.title = `รีวิว ${a.title}`;
+        document.querySelector('meta[name="description"]').content = String(a.review || a.description || a.title).slice(0, 160);
+        AdHub.render(box, [a], { layout: "review" });
+        // สินค้าหมวดเดียวกัน (ไม่ซ้ำกับชิ้นด้านบน)
+        const more = await AdHub.load({ placement, product: id, count: 4 });
+        if (more.ads.length) {
+          document.getElementById("related-wrap").hidden = false;
+          AdHub.render(document.getElementById("related"), more.ads);
+        }
+      };
+      s.onerror = () => empty("โหลด ads.js ไม่ได้");
+      document.head.appendChild(s);
+    })();
+  </script>
+</body>
+</html>
