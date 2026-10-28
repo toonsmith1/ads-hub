@@ -82,7 +82,7 @@
 ได้กลับมา
 ```json
 {"placement": {"key": "review", "slots": 1, "positions": []},
- "ads": [{"id": 12, "title": "...", "price": 320, "price_text": "฿320", "sold_text": "...", "shop": "...", "source": "shopee", "image_url": "https://..."}]}
+ "ads": [{"id": 12, "title": "...", "caption": "คำโปรย (อาจว่าง)", "price": 320, "price_text": "฿320", "sold_text": "...", "shop": "...", "source": "shopee", "image_url": "https://..."}]}
 ```
 เว็บหรือจุดที่วางที่ไม่มีหรือปิดอยู่ได้ `{"placement": null, "ads": []}`
 
@@ -116,7 +116,7 @@
 
 ถ้าเคยติดตั้งเฟส 1-2 แล้ว ให้รัน `supabase/schema.sql` ซ้ำอีกครั้งหนึ่ง (ไม่ทำให้ข้อมูลหาย) แล้วทำข้อ 6-7
 
-ถ้าติดตั้งไปแล้วก่อนมีรูปทั้งหมดและรายละเอียด: รัน `supabase/schema.sql` ซ้ำ (เพิ่มคอลัมน์ `images`, `description`, `details`)
+ถ้าติดตั้งไปแล้วก่อนมีรูปทั้งหมดและรายละเอียด: รัน `supabase/schema.sql` ซ้ำ (เพิ่มคอลัมน์ `images`, `description`, `details`, `caption`)
 แล้วโหลด extension ใหม่ที่ `chrome://extensions` (กดรีโหลด) เพราะต้องได้สิทธิ์ `scripting` เพิ่ม และรีเฟรชหน้า Shopee
 
 อยากได้ลิงก์สั้นเป็น `https://<เว็บ Ad Hub>/go/<id>` (ไม่บังคับ): เพิ่มใน `netlify.toml`

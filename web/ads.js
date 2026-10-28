@@ -168,6 +168,7 @@
 :where(.adhub-img){display:block;width:100%;aspect-ratio:1/1;object-fit:cover;background:#f1f5f9}
 :where(.adhub-body){display:flex;flex-direction:column;gap:4px;padding:8px 10px 10px}
 :where(.adhub-title){font-size:.875em;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+:where(.adhub-caption){font-size:.8em;color:var(--adhub-muted,#64748b)}
 :where(.adhub-price){font-weight:600;color:var(--adhub-price,#e11d48)}
 :where(.adhub-shop){font-size:.75em;color:var(--adhub-muted,#64748b)}
 :where(.adhub-tag){position:absolute;top:6px;left:6px;padding:1px 6px;border-radius:999px;background:rgba(15,23,42,.65);color:#fff;font-size:11px;line-height:1.5}`;
@@ -179,6 +180,7 @@
   <span class="adhub-tag">โฆษณา</span>
   ${a.image ? `<img class="adhub-img" src="${esc(a.image)}" alt="${esc(a.title)}" loading="lazy" referrerpolicy="no-referrer">` : ""}
   <span class="adhub-body"><span class="adhub-title">${esc(a.title)}</span>
+  ${a.caption ? `<span class="adhub-caption">${esc(a.caption)}</span>` : ""}
   ${priceText(a) ? `<span class="adhub-price">${esc(priceText(a))}</span>` : ""}
   ${a.shop ? `<span class="adhub-shop">${esc(a.shop)}</span>` : ""}</span>
 </a>`;

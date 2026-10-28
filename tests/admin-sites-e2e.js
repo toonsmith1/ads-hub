@@ -47,7 +47,10 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", "
   assert.equal(await page.textContent("[data-embed='product-3']"), '<div data-adhub="review" data-product="3"></div>');
   // ไม่มีรูปจากหน้าสินค้า: บอกวิธีดึง
   assert(drawer.includes("รูปทั้งหมดจากหน้าสินค้า (0)") && drawer.includes("เปิดหน้าสินค้า"), drawer);
-  await page.click("#drawer header [data-act=close-drawer]");
+  // คำโปรยบันทึกไปกับสินค้า
+  await page.fill("#drawer [data-d=caption]", "ราคา ฿350 ส่งฟรี");
+  await page.click("#drawer [data-act=save-drawer]");
+  await page.waitForFunction(() => window.__fake.products.find(p => p.id === 3).caption === "ราคา ฿350 ส่งฟรี");
 
   // สินค้าที่มีรูปทั้งหมดและรายละเอียด: เห็นรูป คะแนน ข้อมูลจำเพาะ แก้รายละเอียดและเลือกรูปปกได้
   await page.click("article[data-id='1']");
