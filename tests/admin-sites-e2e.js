@@ -91,6 +91,36 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", "
   assert.equal(manual.status, "active");
   assert.equal(manual.title, "หูฟังไร้สาย จาก AccessTrade");
 
+  // ตั้งค่า AI: เลือกเจ้า วางคีย์ บันทึก เปิดใหม่ไม่เห็นคีย์เต็ม เว้นว่างแล้วบันทึกยังใช้คีย์เดิม
+  await page.click("[data-act=open-ai]");
+  await page.waitForSelector("#modal [data-ai=api_key]");
+  assert.equal(await page.inputValue("#modal [data-ai=model]"), "claude-opus-5-5");
+  assert.equal(await page.$("#modal [data-ai=base_url]"), null, "Claude ไม่ต้องใส่ที่อยู่ API");
+  await page.selectOption("#modal [data-act=ai-preset]", "gemini");
+  assert.equal(await page.inputValue("#modal [data-ai=base_url]"), "https://generativelanguage.googleapis.com/v1beta/openai");
+  assert.equal(await page.inputValue("#modal [data-ai=model]"), "gemini-2.5-flash");
+  await page.selectOption("#modal [data-act=ai-preset]", "claude");
+  await page.fill("#modal [data-ai=model]", "claude-haiku-5-5");
+  await page.fill("#modal [data-ai=api_key]", "sk-ant-secret9876");
+  await page.click("#modal [data-act=ai-save]");
+  await page.waitForFunction(() => window.__fake.aiSettings?.api_key === "sk-ant-secret9876");
+  assert.deepEqual(await page.evaluate(() => window.__fake.aiSettings),
+    { preset: "claude", provider: "anthropic", model: "claude-haiku-5-5", base_url: "", api_key: "sk-ant-secret9876" });
+  await page.click("#modal button[data-act=close-modal]");
+  await page.click("[data-act=open-ai]");
+  await page.waitForSelector("#modal [data-ai=api_key]");
+  assert.equal(await page.inputValue("#modal [data-ai=api_key]"), "");
+  assert.match(await page.getAttribute("#modal [data-ai=api_key]", "placeholder"), /9876/);
+  assert.equal(await page.inputValue("#modal [data-ai=model]"), "claude-haiku-5-5");
+  await page.click("#modal [data-act=ai-save]");
+  await page.waitForTimeout(200);
+  assert.equal(await page.evaluate(() => window.__fake.aiSettings.api_key), "sk-ant-secret9876", "เว้นว่างต้องใช้คีย์เดิม");
+  page.once("dialog", d => d.accept());
+  await page.click("#modal [data-act=ai-clear]");
+  await page.waitForFunction(() => window.__fake.aiSettings.api_key === "");
+  await page.waitForSelector("#modal [data-act=ai-clear]", { state: "detached" });
+  await page.click("#modal button[data-act=close-modal]");
+
     // ร่างรีวิว: สุ่มแบบป้ายยาจากข้อมูลจริง / AI / AI ใช้ไม่ได้ → สุ่มแทน แล้วบันทึก
   await page.waitForTimeout(300);   // รอรายการโหลดใหม่หลังบันทึก
   await page.click("article[data-id='1']");

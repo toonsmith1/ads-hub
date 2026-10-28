@@ -110,6 +110,13 @@
       if (error) return { error: "เรียกฟังก์ชัน review ไม่ได้ (ติดตั้งแล้วหรือยัง)", reason: "failed" };
       return data || { error: "ไม่มีผลตอบกลับ", reason: "failed" };
     },
+    // ตั้งค่า AI (คีย์ไม่ถูกส่งกลับมา ได้แค่ has_key กับ 4 ตัวท้าย)
+    async aiSettings() {
+      return must(await client.rpc("hub_ai_settings"));
+    },
+    async saveAiSettings(p) {
+      return must(await client.rpc("hub_save_ai_settings", { p }));
+    },
     async productTitles(ids) {
       if (!ids.length) return [];
       return must(await client.from("hub_products").select("id, title, status").in("id", ids));

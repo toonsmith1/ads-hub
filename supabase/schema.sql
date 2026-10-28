@@ -541,3 +541,61 @@ as $$
 $$;
 revoke all on function public.hub_product_info(bigint[]) from public;
 grant execute on function public.hub_product_info(bigint[]) to anon, authenticated;
+
+-- ---------- ตั้งค่า (เช่นคีย์ AI สำหรับปุ่ม "เขียนด้วย AI") ----------
+-- แถว key = 'ai': {provider, api_key, model, base_url, preset} อ่าน/เขียนได้เฉพาะแอดมิน
+-- Edge Function "review" อ่านด้วยสิทธิ์ของแอดมินที่กดปุ่ม ถ้าไม่มีแถวนี้จะใช้ Secrets ของ Edge Functions แทน
+create table if not exists public.hub_settings (
+  key text primary key,
+  value jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+alter table public.hub_settings enable row level security;
+grant select, insert, update, delete on public.hub_settings to authenticated;
+drop policy if exists "admin all" on public.hub_settings;
+create policy "admin all" on public.hub_settings for all to authenticated
+  using (public.hub_is_admin()) with check (public.hub_is_admin());
+
+-- หน้าจัดการเห็นแค่ 4 ตัวท้ายของคีย์ ไม่ส่งคีย์เต็มกลับไปที่เบราว์เซอร์
+create or replace function public.hub_ai_settings() returns jsonb
+language sql stable security invoker
+set search_path = public
+as $$
+  select coalesce((
+    select (value - 'api_key') || jsonb_build_object(
+             'has_key', coalesce(value ->> 'api_key', '') <> '',
+             'key_hint', right(coalesce(value ->> 'api_key', ''), 4))
+    from hub_settings where key = 'ai'), '{"has_key": false}'::jsonb);
+$$;
+revoke all on function public.hub_ai_settings() from public;
+grant execute on function public.hub_ai_settings() to authenticated;
+
+-- บันทึก: api_key ว่าง = ใช้คีย์เดิม, clear_key = true ลบคีย์
+create or replace function public.hub_save_ai_settings(p jsonb) returns jsonb
+language plpgsql security invoker
+set search_path = public
+as $$
+declare
+  v_old text := coalesce((select value ->> 'api_key' from hub_settings where key = 'ai'), '');
+  v_key text := trim(coalesce(p ->> 'api_key', ''));
+  v jsonb;
+begin
+  if not public.hub_is_admin() then
+    raise exception 'ต้องเป็นแอดมินของ Ad Hub' using errcode = '42501';
+  end if;
+  if coalesce((p ->> 'clear_key')::boolean, false) then v_key := '';
+  elsif v_key = '' then v_key := v_old;
+  end if;
+  v := jsonb_build_object(
+    'preset', left(trim(coalesce(p ->> 'preset', '')), 40),
+    'provider', case when lower(p ->> 'provider') = 'openai' then 'openai' else 'anthropic' end,
+    'model', left(trim(coalesce(p ->> 'model', '')), 120),
+    'base_url', left(trim(coalesce(p ->> 'base_url', '')), 300),
+    'api_key', v_key);
+  insert into hub_settings (key, value, updated_at) values ('ai', v, now())
+    on conflict (key) do update set value = excluded.value, updated_at = now();
+  return public.hub_ai_settings();
+end;
+$$;
+revoke all on function public.hub_save_ai_settings(jsonb) from public;
+grant execute on function public.hub_save_ai_settings(jsonb) to authenticated;

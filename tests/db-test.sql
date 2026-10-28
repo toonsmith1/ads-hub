@@ -229,3 +229,46 @@ do $$ begin
   assert hub_product_info(array[(select id from hub_products where source_id = '77')]) -> 0 -> 'images' = '["https://cdn.example/1.jpg"]';
 end $$;
 reset role;
+
+-- ---------- ตั้งค่า AI: คีย์ไม่ถูกส่งกลับ, เว้นว่าง = ใช้คีย์เดิม, เฉพาะแอดมิน ----------
+set request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
+set role authenticated;
+do $$
+declare r jsonb;
+begin
+  assert hub_ai_settings() = '{"has_key": false}', 'ยังไม่ตั้ง';
+  r := hub_save_ai_settings('{"preset": "claude", "provider": "anthropic", "model": "claude-haiku-5-5", "api_key": " sk-ant-abcd1234 "}');
+  assert r = '{"preset": "claude", "provider": "anthropic", "model": "claude-haiku-5-5", "base_url": "", "has_key": true, "key_hint": "1234"}', format('ได้ %s', r);
+  assert (select value ->> 'api_key' from hub_settings where key = 'ai') = 'sk-ant-abcd1234';
+  r := hub_save_ai_settings('{"preset": "deepseek", "provider": "OpenAI", "model": "deepseek-chat", "base_url": "https://api.deepseek.com", "api_key": ""}');
+  assert r ->> 'provider' = 'openai' and r ->> 'key_hint' = '1234', 'คีย์ว่างต้องใช้คีย์เดิม';
+  assert not (r ? 'api_key');
+  r := hub_save_ai_settings('{"provider": "evil", "clear_key": true, "api_key": "x"}');
+  assert r ->> 'provider' = 'anthropic' and r -> 'has_key' = 'false', format('ลบคีย์ ได้ %s', r);
+  perform hub_save_ai_settings('{"provider": "anthropic", "api_key": "sk-ant-zzzz9999"}');
+end $$;
+reset role;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-000000000002';
+set role authenticated;
+do $$ begin
+  assert hub_ai_settings() = '{"has_key": false}', 'คนที่ไม่ใช่แอดมินต้องไม่เห็นค่า';
+  assert (select count(*) from hub_settings) = 0;
+  begin
+    perform hub_save_ai_settings('{"api_key": "steal"}');
+    raise exception 'คนที่ไม่ใช่แอดมินบันทึกได้';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+set role anon;
+do $$ begin
+  begin
+    perform hub_ai_settings();
+    raise exception 'anon เรียกได้';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+do $$ begin
+  assert (select value ->> 'api_key' from hub_settings where key = 'ai') = 'sk-ant-zzzz9999';
+end $$;

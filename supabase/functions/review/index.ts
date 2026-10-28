@@ -2,7 +2,8 @@
 // ร่างรีวิวสินค้าด้วย AI (แอดมินเท่านั้น) เรียกจากปุ่ม "เขียนด้วย AI" ในแผงแก้ไขสินค้า
 //   POST /functions/v1/review  {id}  → {text, model} หรือ {error, reason} (reason: no_key, quota, failed)
 //   ถ้าได้ error หน้าจัดการจะสลับไปเขียนแบบสุ่ม (ป้ายยา) ให้เอง
-// เลือกเจ้า AI ได้ด้วย Secrets ของ Edge Functions (Supabase > Edge Functions > Secrets):
+// ตั้งคีย์และเจ้า AI ได้จากปุ่ม "ตั้งค่า AI" ในหน้าจัดการ (ตาราง hub_settings แถว 'ai')
+// ถ้ายังไม่ได้ตั้งที่นั่น จะใช้ Secrets ของ Edge Functions (Supabase > Edge Functions > Secrets):
 //   AI_API_KEY   คีย์ของเจ้าที่ใช้ (จำเป็น)
 //   AI_PROVIDER  "anthropic" (Claude, ค่าเริ่มต้น) หรือ "openai" (เจ้าไหนก็ได้ที่ใช้รูปแบบ OpenAI: OpenAI, Gemini, DeepSeek, OpenRouter, Typhoon ฯลฯ)
 //   AI_MODEL     ชื่อรุ่น (ว่าง = claude-opus-5-5 สำหรับ anthropic, ต้องใส่เองสำหรับ openai)
@@ -145,16 +146,26 @@ Deno.serve(async (req) => {
   }
   if (!product) return json({ error: "ไม่พบสินค้า" }, 404);
 
-  const key = Deno.env.get("AI_API_KEY") ?? "";
-  const provider = (Deno.env.get("AI_PROVIDER") ?? "anthropic").toLowerCase();
-  const model = Deno.env.get("AI_MODEL") || (provider === "anthropic" ? "claude-opus-5-5" : "");
-  if (!key || !model) return json({ error: "ยังไม่ได้ตั้งคีย์ AI (AI_API_KEY / AI_MODEL)", reason: "no_key" });
+  // ค่าที่ตั้งในหน้าจัดการมาก่อน ไม่มีค่อยใช้ Secrets
+  let saved: Record<string, string> = {};
+  try {
+    const [row] = await asCaller(auth, "/rest/v1/hub_settings?key=eq.ai&select=value");
+    saved = row?.value ?? {};
+  } catch (err) {
+    console.error(err);   // ยังไม่ได้รัน schema ที่มีตาราง hub_settings: ใช้ Secrets
+  }
+  const useSaved = !!saved.api_key;
+  const key = useSaved ? saved.api_key : Deno.env.get("AI_API_KEY") ?? "";
+  const provider = ((useSaved ? saved.provider : Deno.env.get("AI_PROVIDER")) || "anthropic").toLowerCase();
+  const model = (useSaved ? saved.model : Deno.env.get("AI_MODEL")) || (provider === "anthropic" ? "claude-opus-5-5" : "");
+  const baseUrl = (useSaved ? saved.base_url : Deno.env.get("AI_BASE_URL")) || "https://api.openai.com/v1";
+  if (!key || !model) return json({ error: "ยังไม่ได้ตั้งคีย์ AI (กดปุ่ม ตั้งค่า AI)", reason: "no_key" });
 
   try {
     const prompt = userPrompt(product);
     const text = provider === "anthropic"
       ? await anthropic(key, model, prompt)
-      : await openaiCompatible(key, model, Deno.env.get("AI_BASE_URL") || "https://api.openai.com/v1", prompt);
+      : await openaiCompatible(key, model, baseUrl, prompt);
     if (!text) throw new AiError("failed", "ได้ข้อความว่าง");
     return json({ text, model });
   } catch (err) {

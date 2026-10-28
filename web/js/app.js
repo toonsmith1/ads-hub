@@ -29,7 +29,8 @@ const state = {
   selected: new Set(),
   view: localGet("hub.view") || "grid",
   drawer: null,   // สินค้าที่กำลังแก้ (สำเนา)
-  modal: null,    // "import" | "categories" | "sites"
+  modal: null,    // "import" | "categories" | "sites" | "ai"
+  ai: null,       // ฟอร์มตั้งค่า AI (โหลดตอนเปิดหน้าต่าง)
   importer: null,
   stats: {},      // { [product_id]: {views, clicks} } ของสินค้าในหน้านี้ ย้อนหลัง STATS_DAYS วัน
   sites: null,    // เว็บที่แสดงโฆษณา พร้อม hub_placements (โหลดตอนเปิดหน้าต่าง)
@@ -138,6 +139,7 @@ function renderShell() {
           <input id="search" type="search" placeholder="ค้นหาชื่อสินค้า ร้าน หรือโน้ต  ( / )" class="${INPUT} w-full pl-9 h-10" autocomplete="off">
         </div>
         <button data-act="open-sites" class="${BTN} h-10 shrink-0">เว็บที่แสดงโฆษณา</button>
+        <button data-act="open-ai" class="${BTN} h-10 shrink-0">ตั้งค่า AI</button>
         <button data-act="new-product" class="${BTN} h-10 shrink-0">+ เพิ่มสินค้าเอง</button>
         <button data-act="open-import" class="${BTN_PRIMARY} h-10 shrink-0">+ นำเข้าสินค้า</button>
         <button data-act="signout" class="${BTN} h-10 shrink-0 hidden md:inline-flex">ออกจากระบบ</button>
@@ -620,6 +622,7 @@ function openImport() {
 function closeModal() {
   state.modal = null;
   state.importer = null;
+  state.ai = null;
   renderModal();
 }
 
@@ -781,14 +784,96 @@ function renderModal() {
   const el = $("#modal");
   if (!el) return;
   if (!state.modal) { el.innerHTML = ""; return; }
-  const inner = state.modal === "import" ? importModalHtml() : state.modal === "sites" ? sitesModalHtml() : categoriesModalHtml();
+  const inner = state.modal === "import" ? importModalHtml() : state.modal === "sites" ? sitesModalHtml()
+    : state.modal === "ai" ? aiModalHtml() : categoriesModalHtml();
   el.innerHTML = `
     <div class="fixed inset-0 z-[60] grid place-items-center p-4">
       <div data-act="close-modal" class="absolute inset-0 bg-slate-900/40"></div>
-      <div class="relative w-full ${state.modal === "import" ? "max-w-3xl" : "max-w-4xl"} max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl p-6">${inner}</div>
+      <div class="relative w-full ${{ import: "max-w-3xl", ai: "max-w-xl" }[state.modal] || "max-w-4xl"} max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl p-6">${inner}</div>
     </div>`;
 }
 
+// ---------- ตั้งค่า AI ----------
+// คีย์เก็บในตาราง hub_settings (แอดมินเท่านั้น) ฟังก์ชัน review อ่านไปใช้ตอนกด "เขียนด้วย AI"
+const AI_PRESETS = {
+  claude: { label: "Claude (Anthropic)", provider: "anthropic", base_url: "", model: "claude-opus-5-5", models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"], keyUrl: "https://console.anthropic.com/settings/keys" },
+  openai: { label: "OpenAI (ChatGPT)", provider: "openai", base_url: "https://api.openai.com/v1", model: "", models: [], keyUrl: "https://platform.openai.com/api-keys" },
+  gemini: { label: "Google Gemini", provider: "openai", base_url: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-2.5-flash", models: ["gemini-2.5-flash", "gemini-2.5-pro"], keyUrl: "https://aistudio.google.com/apikey" },
+  deepseek: { label: "DeepSeek", provider: "openai", base_url: "https://api.deepseek.com", model: "deepseek-chat", models: ["deepseek-chat"], keyUrl: "https://platform.deepseek.com/api_keys" },
+  openrouter: { label: "OpenRouter", provider: "openai", base_url: "https://openrouter.ai/api/v1", model: "", models: [], keyUrl: "https://openrouter.ai/keys" },
+  custom: { label: "อื่นๆ (รูปแบบ OpenAI)", provider: "openai", base_url: "", model: "", models: [], keyUrl: "" },
+};
+
+async function openAi() {
+  state.modal = "ai";
+  state.ai = null;
+  renderModal();
+  const s = await guard(() => HubAPI.aiSettings());
+  if (state.modal !== "ai") return;
+  const v = s || {};
+  const preset = AI_PRESETS[v.preset] ? v.preset : "claude";
+  state.ai = {
+    preset, provider: v.provider || AI_PRESETS[preset].provider, base_url: v.base_url ?? AI_PRESETS[preset].base_url,
+    model: v.model || AI_PRESETS[preset].model, api_key: "", has_key: !!v.has_key, key_hint: v.key_hint || "", busy: false,
+  };
+  renderModal();
+}
+
+function readAiInputs() {
+  document.querySelectorAll("#modal [data-ai]").forEach(inp => { state.ai[inp.dataset.ai] = inp.value.trim(); });
+}
+
+function aiModalHtml() {
+  const a = state.ai;
+  const head = `<h2 class="text-lg font-semibold">ตั้งค่า AI เขียนรีวิว</h2>
+    <p class="mt-1 text-sm text-slate-500">ใช้กับปุ่ม "เขียนด้วย AI" ในแผงแก้ไขสินค้า คีย์เก็บใน Supabase อ่านได้เฉพาะแอดมิน และไม่แสดงกลับมาที่หน้านี้</p>`;
+  if (!a) return `${head}<div class="mt-6 text-sm text-slate-400">กำลังโหลด…</div>`;
+  const pre = AI_PRESETS[a.preset];
+  const field = (label, html, hint = "") => `<label class="block mt-4 text-sm font-medium text-slate-700">${label}${html}${hint ? `<span class="block mt-1 text-xs font-normal text-slate-400">${hint}</span>` : ""}</label>`;
+  return `${head}
+    ${field("เจ้า AI", `<select data-act="ai-preset" class="${INPUT} mt-1 w-full">${Object.entries(AI_PRESETS).map(([k, p]) => `<option value="${k}" ${k === a.preset ? "selected" : ""}>${p.label}</option>`).join("")}</select>`,
+      pre.keyUrl ? `ขอคีย์ได้ที่ <a href="${pre.keyUrl}" target="_blank" rel="noopener" class="text-brand-600 hover:underline">${esc(new URL(pre.keyUrl).host)}</a>` : "")}
+    ${field("API key", `<input data-ai="api_key" type="password" autocomplete="off" value="${esc(a.api_key)}" placeholder="${a.has_key ? `ตั้งไว้แล้ว (…${esc(a.key_hint)}) เว้นว่าง = ใช้คีย์เดิม` : "วางคีย์ที่นี่"}" class="${INPUT} mt-1 w-full">`)}
+    ${field("รุ่น (model)", `<input data-ai="model" list="ai-models" value="${esc(a.model)}" placeholder="${pre.provider === "anthropic" ? "claude-opus-5-5" : "ชื่อรุ่น เช่น gpt-5-mini"}" class="${INPUT} mt-1 w-full">
+      <datalist id="ai-models">${pre.models.map(m => `<option value="${m}">`).join("")}</datalist>`,
+      a.preset === "claude" ? "claude-haiku-5-5 ถูกและเร็วกว่า เหมาะกับเขียนรีวิวจำนวนมาก" : "")}
+    ${pre.provider === "openai" ? field("ที่อยู่ API (base URL)", `<input data-ai="base_url" value="${esc(a.base_url)}" placeholder="https://…/v1" class="${INPUT} mt-1 w-full">`) : ""}
+    <div class="mt-6 flex flex-wrap items-center justify-between gap-2">
+      <div>${a.has_key ? `<button data-act="ai-clear" class="${BTN_DANGER} h-9" ${a.busy ? "disabled" : ""}>ลบคีย์</button>` : ""}</div>
+      <div class="flex gap-2">
+        <button data-act="close-modal" class="${BTN} h-9">ปิด</button>
+        <button data-act="ai-save" class="${BTN_PRIMARY} h-9" ${a.busy ? "disabled" : ""}>${a.busy ? "กำลังบันทึก…" : "บันทึก"}</button>
+      </div>
+    </div>`;
+}
+
+function setAiPreset(key) {
+  readAiInputs();
+  const p = AI_PRESETS[key];
+  Object.assign(state.ai, { preset: key, provider: p.provider, base_url: p.base_url, model: p.model });
+  renderModal();
+}
+
+async function saveAi(clear) {
+  const a = state.ai;
+  readAiInputs();
+  if (clear && !confirm("ลบคีย์ AI? ปุ่มเขียนด้วย AI จะกลับไปสุ่มแบบป้ายยา")) return;
+  if (!clear) {
+    if (!a.api_key && !a.has_key) return toast("วางคีย์ก่อน", "error");
+    if (!a.model && a.provider !== "anthropic") return toast("ใส่ชื่อรุ่นก่อน", "error");
+    if (a.provider === "openai" && !/^https:\/\//.test(a.base_url)) return toast("ที่อยู่ API ต้องขึ้นต้นด้วย https://", "error");
+  }
+  a.busy = true;
+  renderModal();
+  const out = await guard(() => HubAPI.saveAiSettings({
+    preset: a.preset, provider: a.provider, model: a.model, base_url: a.provider === "openai" ? a.base_url : "",
+    api_key: clear ? "" : a.api_key, clear_key: !!clear,
+  }), clear ? "ลบคีย์แล้ว" : "บันทึกตั้งค่า AI แล้ว");
+  if (state.modal !== "ai") return;
+  a.busy = false;
+  if (out) Object.assign(a, { api_key: "", has_key: !!out.has_key, key_hint: out.key_hint || "" });
+  renderModal();
+}
 
 // ---------- เว็บที่แสดงโฆษณา ----------
 // แต่ละเว็บมีคีย์ที่ใส่ในโค้ดฝัง (ads.js?site=<คีย์>) และจุดที่วางหลายจุด เช่น feed (แทรกในรายการ) detail (หน้ารายละเอียด)
@@ -990,6 +1075,9 @@ async function onClick(e) {
     case "save-cat": saveCat(el); break;
     case "delete-cat": deleteCat(Number(el.dataset.id)); break;
     case "open-sites": openSites(); break;
+    case "open-ai": openAi(); break;
+    case "ai-save": saveAi(false); break;
+    case "ai-clear": saveAi(true); break;
     case "save-site": saveSite(el); break;
     case "delete-site": deleteSite(Number(el.dataset.id)); break;
     case "save-placement": savePlacement(el); break;
@@ -1032,6 +1120,7 @@ async function onChange(e) {
       break;
     case "upload": uploadDrawerImage(t); break;
     case "import-file": readImportFile(t); break;
+    case "ai-preset": setAiPreset(t.value); break;
   }
 }
 

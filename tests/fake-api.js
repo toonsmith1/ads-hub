@@ -128,6 +128,17 @@
       const mode = window.__fake.ai || "no_key";
       return delay(mode === "ok" ? { text: `รีวิว AI ของ #${id}`, model: "fake-model" } : { error: "โทเคนหมด", reason: mode });
     },
+    // เหมือน hub_ai_settings / hub_save_ai_settings: ไม่ส่งคีย์กลับ เว้นว่าง = ใช้คีย์เดิม
+    aiSettings() {
+      const { api_key, ...v } = window.__fake.aiSettings || {};
+      return delay(api_key ? { ...v, has_key: true, key_hint: api_key.slice(-4) } : { ...v, has_key: false });
+    },
+    saveAiSettings(p) {
+      const old = (window.__fake.aiSettings || {}).api_key || "";
+      const { clear_key, ...v } = p;
+      window.__fake.aiSettings = { ...v, api_key: clear_key ? "" : (p.api_key || old) };
+      return this.aiSettings();
+    },
     legacyPromos: () => delay(legacy),
   };
 })();

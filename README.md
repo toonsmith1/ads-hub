@@ -135,7 +135,10 @@
 7. ใน Ad Hub กด **เว็บที่แสดงโฆษณา** > เพิ่มเว็บ > เพิ่มจุดที่วาง แล้วคัดลอกโค้ดฝังไปใส่ในเว็บนั้น
 8. **ปุ่มเขียนรีวิวด้วย AI** (ไม่บังคับ ไม่ทำก็ใช้แบบสุ่มได้) Edge Functions > Deploy a new function > Via Editor
    ตั้งชื่อ `review` วางไฟล์ `supabase/functions/review/index.ts` > Deploy (เปิด Verify JWT ไว้ตามเดิม มีแต่แอดมินที่ใช้ได้)
-   แล้ว Edge Functions > Secrets เพิ่มค่าตามเจ้าที่ใช้
+   แล้วกลับมาที่ Ad Hub กดปุ่ม **ตั้งค่า AI** เลือกเจ้า วางคีย์ เลือกรุ่น > บันทึก
+   (คีย์เก็บในตาราง `hub_settings` อ่านได้เฉพาะแอดมิน หน้าเว็บเห็นแค่ 4 ตัวท้าย)
+
+   หรือจะตั้งที่ Edge Functions > Secrets แทนก็ได้ (ใช้เมื่อยังไม่ได้ตั้งคีย์ในหน้า ตั้งค่า AI)
 
    | เจ้า | `AI_PROVIDER` | `AI_API_KEY` | `AI_MODEL` | `AI_BASE_URL` |
    |---|---|---|---|---|
@@ -145,9 +148,11 @@
    | DeepSeek | `openai` | คีย์ DeepSeek | `deepseek-chat` | `https://api.deepseek.com` |
    | OpenRouter (หลายเจ้าในคีย์เดียว) | `openai` | คีย์ OpenRouter | ชื่อรุ่นตาม OpenRouter | `https://openrouter.ai/api/v1` |
 
-   เจ้าอื่นที่รองรับรูปแบบ OpenAI (`/chat/completions`) ใช้แบบเดียวกัน เปลี่ยนเจ้าได้ทุกเมื่อโดยแก้ Secrets ไม่ต้องแก้โค้ด
+   เจ้าอื่นที่รองรับรูปแบบ OpenAI (`/chat/completions`) ใช้แบบเดียวกัน เปลี่ยนเจ้าได้ทุกเมื่อจากหน้า ตั้งค่า AI ไม่ต้องแก้โค้ด
 
 ถ้าเคยติดตั้งเฟส 1-2 แล้ว ให้รัน `supabase/schema.sql` ซ้ำอีกครั้งหนึ่ง (ไม่ทำให้ข้อมูลหาย) แล้วทำข้อ 6-7
+
+ถ้าติดตั้งไปแล้วก่อนมีปุ่ม ตั้งค่า AI: รัน `supabase/schema.sql` ซ้ำ (เพิ่มตาราง `hub_settings`) แล้ว Deploy ฟังก์ชัน `review` ใหม่ด้วยไฟล์ล่าสุด
 
 ถ้าติดตั้งไปแล้วก่อนมีคำโปรย: รัน `supabase/schema.sql` ซ้ำ (เพิ่มคอลัมน์ `caption`)
 

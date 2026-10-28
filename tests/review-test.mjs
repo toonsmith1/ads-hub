@@ -12,12 +12,14 @@ globalThis.Deno = { env: { get: (k) => env[k] }, serve: (h) => { handler = h; } 
 const calls = [];
 console.error = () => {};   // ฟังก์ชันพิมพ์ error ที่ตั้งใจให้เกิดในเทสต์
 let admin = true;
+let settings = [];   // แถว hub_settings ที่ตั้งจากหน้าจัดการ
 let ai = () => new Response(JSON.stringify({ stop_reason: "end_turn", content: [{ type: "thinking", thinking: "" }, { type: "text", text: " รีวิวจาก Claude " }] }));
 const product = { title: "หูฟัง J", price_text: "฿199", price: 199, sold_text: "ขายแล้ว 50", shop: "ร้านเอ", description: "เสียงดี",
   details: { brand: "ABC", rating: 4.8, rating_count: 12, specs: { "สี": "ดำ" }, detail_url: "https://shopee.co.th/x" } };
 globalThis.fetch = async (url, init) => {
   calls.push({ url, headers: init.headers, body: init.body ? JSON.parse(init.body) : null });
   if (url.endsWith("/rpc/hub_is_admin")) return new Response(JSON.stringify(admin));
+  if (url.includes("/rest/v1/hub_settings?key=eq.ai")) return new Response(JSON.stringify(settings));
   if (url.includes("/rest/v1/hub_products?id=eq.5")) return new Response(JSON.stringify([product]));
   if (url.includes("/rest/v1/hub_products")) return new Response("[]");
   return ai(url);
@@ -82,6 +84,24 @@ assert.equal(o.body.messages[0].role, "system");
 delete env.AI_MODEL;
 assert.equal((await call({ id: 5 })).body.reason, "no_key", "openai ต้องตั้งชื่อรุ่นเอง");
 env.AI_MODEL = "gemini-x";
+
+// ตั้งคีย์จากหน้าจัดการ (hub_settings): ใช้แทน Secrets ทั้งชุด
+settings = [{ value: { provider: "anthropic", api_key: "sk-ant-saved", model: "claude-haiku-5-5", base_url: "" } }];
+ai = () => new Response(JSON.stringify({ stop_reason: "end_turn", content: [{ type: "text", text: "จากคีย์ที่ตั้ง" }] }));
+r = await call({ id: 5 });
+assert.deepEqual(r.body, { text: "จากคีย์ที่ตั้ง", model: "claude-haiku-5-5" });
+assert.equal(calls.at(-1).url, "https://api.anthropic.com/v1/messages");
+assert.equal(calls.at(-1).headers["x-api-key"], "sk-ant-saved");
+assert.equal(calls.find(c => c.url.includes("hub_settings")).headers.Authorization, "Bearer user-jwt", "อ่านค่าตั้งด้วยสิทธิ์ของคนที่กด");
+settings = [{ value: { provider: "openai", api_key: "sk-ds", model: "deepseek-chat", base_url: "https://api.deepseek.com" } }];
+ai = () => new Response(JSON.stringify({ choices: [{ message: { content: "จาก DeepSeek" } }] }));
+r = await call({ id: 5 });
+assert.deepEqual(r.body, { text: "จาก DeepSeek", model: "deepseek-chat" });
+assert.equal(calls.at(-1).url, "https://api.deepseek.com/chat/completions");
+settings = [{ value: { provider: "anthropic", api_key: "", model: "" } }];   // ลบคีย์แล้ว: กลับไปใช้ Secrets
+ai = () => new Response(JSON.stringify({ choices: [{ message: { content: "รีวิวจาก Gemini" } }] }));
+assert.equal((await call({ id: 5 })).body.model, "gemini-x");
+settings = [];
 
 // ไม่ใช่แอดมิน / ไม่มีสินค้า / รหัสผิด
 admin = false;
