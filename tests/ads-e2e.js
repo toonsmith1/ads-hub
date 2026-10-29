@@ -9,6 +9,7 @@ const { chromium } = require("playwright");
 const WEB = path.resolve(__dirname, "../web");
 const calls = [];
 let down = false;
+let slow = 0;   // หน่วงคำตอบ (ms) จำลองคลังกลางตอบช้า
 const products = Array.from({ length: 8 }, (_, i) => ({
   id: i + 1, title: `สินค้า ${i + 1} <b>`, price: 100 + i, price_text: i % 2 ? `฿${100 + i}` : "", sold_text: "", shop: i === 0 ? "ร้านเอ" : "", source: "shopee",
   image_url: `https://img.example/${i + 1}.png`,
@@ -25,7 +26,8 @@ function listen(handler) {
     if (req.method === "OPTIONS") { res.writeHead(204, cors); return res.end(); }
     let body = "";
     req.on("data", c => (body += c));
-    req.on("end", () => {
+    req.on("end", async () => {
+      if (slow) await new Promise(r => setTimeout(r, slow));
       const json = body ? JSON.parse(body) : {};
       calls.push({ path: req.url, apikey: req.headers.apikey, auth: req.headers.authorization, body: json });
       if (down) { res.writeHead(503, cors); return res.end("down"); }
@@ -171,6 +173,27 @@ function listen(handler) {
   await rv.goto(`${hubUrl}/review.html?site=transfer`);
   assert.match(await rv.textContent("#review"), /ใส่ \?site=/);
   await rv.close();
+
+  // เปิดซ้ำ: วาดจากแคชทันทีไม่รอคลังกลางที่ตอบช้า แล้วยังดึงของใหม่เบื้องหลัง
+  slow = 3000;
+  const before = calls.length;
+  const t0 = Date.now();
+  await page.reload();
+  await page.waitForSelector("#feed .adhub-card");
+  await page.waitForSelector("#detail .adhub-card");
+  assert(Date.now() - t0 < 2000, `ต้องวาดจากแคชทันที (ใช้ ${Date.now() - t0}ms)`);
+  await new Promise(r => setTimeout(r, 3500));
+  assert(calls.slice(before).some(c => c.path === "/rest/v1/rpc/hub_ads"), "ต้องดึงของใหม่เบื้องหลัง");
+  slow = 0;
+
+  // แคชเก่าเกินวัน: รอคลังกลางเหมือนเดิม
+  await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith("adhub:")).forEach(k => {
+    const v = JSON.parse(localStorage.getItem(k)); v.at -= 25 * 36e5; localStorage.setItem(k, JSON.stringify(v));
+  }));
+  const beforeOld = calls.length;
+  await page.reload();
+  await page.waitForSelector("#feed .adhub-card");
+  assert(calls.slice(beforeOld).some(c => c.path === "/rest/v1/rpc/hub_ads"));
 
   // คลังกลางล่ม: ใช้ผลครั้งล่าสุดที่เก็บไว้ หน้าไม่พัง
   down = true;
