@@ -7,6 +7,7 @@
 //   <div data-adhub="feed" data-show="image,title,shop"></div>  ← เลือกช่องบนการ์ด (ไม่ใส่ = ตามที่ตั้งในจุดที่วาง)
 //   <div data-adhub="review" data-product="12"></div>   ← ขอสินค้าตามรหัส (เช่นหน้ารีวิว)
 //   <div data-adhub="review" data-product="12" data-layout="review"></div>  ← กล่องรีวิว: รูปทั้งหมด สเปก รายละเอียด ปุ่มซื้อ
+//   <div data-adhub="feed" data-cta="เช็คราคาวันนี้"></div>   ← ข้อความบนปุ่มของการ์ด (ไม่ใส่ = "ดูราคาใน Shopee" ตามแหล่งสินค้า)
 //
 // หรือดึงข้อมูลไปวาดเองด้วย AdHub.load() แล้วเรียก AdHub.observe() เพื่อนับการแสดง (ดู README)
 // ลิงก์บนการ์ดชี้ไปที่ /go/<id> ซึ่งนับคลิกแล้วส่งต่อไปลิงก์ affiliate
@@ -139,6 +140,7 @@
     entries.forEach((entry) => {
       if (!entry.isIntersecting) return;
       io.unobserve(entry.target);
+      entry.target.classList.add("adhub-in");   // ปุ่มวาวหนึ่งครั้งตอนเลื่อนมาเห็น
       const id = Number(entry.target.getAttribute("data-adhub-id"));
       const placement = entry.target.getAttribute("data-adhub-placement") || "";
       const key = `${placement}:${id}`;
@@ -163,6 +165,8 @@
   // ---------- การ์ดสำเร็จรูป ----------
   const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const priceText = (a) => a.price_text || (a.price != null ? `฿${Number(a.price).toLocaleString("th-TH")}` : "");
+  const SOURCES = { shopee: "Shopee", lazada: "Lazada", tiktok: "TikTok Shop", amazon: "Amazon" };
+  const ctaText = (a, cta) => String(cta || "").trim() || (SOURCES[a.source] ? `ดูราคาใน ${SOURCES[a.source]}` : "ดูราคาและรายละเอียด");
 
   function injectCss() {
     if (document.getElementById("adhub-css")) return;
@@ -171,10 +175,22 @@
     // :where() ทำให้ความสำคัญเป็นศูนย์ เว็บที่ฝังเขียนทับได้ง่าย สีปรับได้ด้วยตัวแปร --adhub-*
     css.textContent = `
 :where(.adhub-grid){display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--adhub-min,150px),1fr));gap:var(--adhub-gap,12px)}
-:where(.adhub-card){position:relative;display:flex;flex-direction:column;border:1px solid var(--adhub-border,#e2e8f0);border-radius:var(--adhub-radius,12px);background:var(--adhub-bg,#fff);color:var(--adhub-fg,#1e293b);text-decoration:none;overflow:hidden;font:inherit}
-:where(.adhub-card:hover){box-shadow:0 4px 14px rgba(15,23,42,.08)}
-:where(.adhub-img){display:block;width:100%;aspect-ratio:1/1;object-fit:cover;background:#f1f5f9}
-:where(.adhub-body){display:flex;flex-direction:column;gap:4px;padding:8px 10px 10px}
+:where(.adhub-card){position:relative;display:flex;flex-direction:column;border:1px solid var(--adhub-border,#e2e8f0);border-radius:var(--adhub-radius,12px);background:var(--adhub-bg,#fff);color:var(--adhub-fg,#1e293b);text-decoration:none;overflow:hidden;font:inherit;cursor:pointer;transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease;-webkit-tap-highlight-color:transparent}
+:where(.adhub-card:hover){transform:translateY(-2px);border-color:var(--adhub-accent,#e11d48);box-shadow:0 8px 20px rgba(15,23,42,.12)}
+:where(.adhub-card:active){transform:scale(.98);box-shadow:0 2px 6px rgba(15,23,42,.1)}
+:where(.adhub-card:focus-visible,.adhub-buy:focus-visible){outline:3px solid var(--adhub-accent,#e11d48);outline-offset:2px}
+:where(.adhub-img){display:block;width:100%;aspect-ratio:1/1;object-fit:cover;background:#f1f5f9;transition:transform .3s ease}
+:where(.adhub-card:hover .adhub-img){transform:scale(1.04)}
+:where(.adhub-body){display:flex;flex-direction:column;gap:4px;padding:8px 10px 10px;flex:1}
+:where(.adhub-cta,.adhub-buy){position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:999px;background:var(--adhub-accent,#e11d48);color:var(--adhub-accent-fg,#fff);font-weight:600;line-height:1.2;text-align:center;box-shadow:0 2px 6px rgba(225,29,72,.3);transition:filter .15s ease,box-shadow .15s ease}
+:where(.adhub-cta){margin-top:auto;min-height:36px;padding:6px 12px;font-size:.85em}
+:where(.adhub-card:hover .adhub-cta,.adhub-buy:hover){filter:brightness(1.08);box-shadow:0 4px 12px rgba(225,29,72,.4)}
+:where(.adhub-arrow){display:inline-block;transition:transform .15s ease}
+:where(.adhub-card:hover .adhub-arrow,.adhub-buy:hover .adhub-arrow){transform:translateX(3px)}
+.adhub-cta::after,.adhub-buy::after{content:"";position:absolute;top:0;left:-60%;width:40%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.45),transparent);transform:skewX(-20deg);pointer-events:none;opacity:0}
+.adhub-in .adhub-cta::after,.adhub-in.adhub-review .adhub-buy::after{animation:adhub-shine 1.1s ease .3s 2}
+@keyframes adhub-shine{0%{left:-60%;opacity:1}100%{left:130%;opacity:1}}
+@media (prefers-reduced-motion:reduce){.adhub-card,.adhub-img,.adhub-arrow{transition:none!important;transform:none!important}.adhub-cta::after,.adhub-buy::after{animation:none!important}}
 :where(.adhub-title){font-size:.875em;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 :where(.adhub-caption){font-size:.8em;color:var(--adhub-muted,#64748b)}
 :where(.adhub-price){font-weight:600;color:var(--adhub-price,#e11d48)}
@@ -193,8 +209,7 @@
 :where(.adhub-meta){font-size:.85em;color:var(--adhub-muted,#64748b)}
 :where(.adhub-stars){color:#f59e0b;letter-spacing:1px}
 :where(.adhub-review .adhub-price){font-size:1.4em}
-:where(.adhub-buy){display:inline-flex;align-items:center;justify-content:center;align-self:flex-start;min-height:44px;padding:0 22px;border-radius:999px;background:var(--adhub-accent,#e11d48);color:#fff;font-weight:600;text-decoration:none}
-:where(.adhub-buy:hover){filter:brightness(1.08)}
+:where(.adhub-buy){display:inline-flex;align-self:flex-start;min-height:48px;padding:0 26px;font-size:1.05em;text-decoration:none}
 :where(.adhub-specs){display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:0;font-size:.875em}
 :where(.adhub-specs dt){color:var(--adhub-muted,#64748b)}
 :where(.adhub-specs dd){margin:0;overflow-wrap:anywhere}
@@ -205,7 +220,7 @@
     document.head.appendChild(css);
   }
 
-  // ช่องบนการ์ด: image title caption price shop ว่าง = ทุกช่อง (ป้าย "โฆษณา" แสดงเสมอ)
+  // ช่องบนการ์ด: image title caption price shop ว่าง = ทุกช่อง (ป้าย "โฆษณา" และปุ่ม CTA แสดงเสมอ)
   const FIELDS = ["image", "title", "caption", "price", "shop"];
   function showSet(show) {
     const list = (Array.isArray(show) ? show : String(show || "").split(/[\s,]+/))
@@ -213,24 +228,25 @@
     return new Set(list.length ? list : FIELDS);
   }
 
-  function cardHtml(a, show) {
+  function cardHtml(a, show, cta) {
     const on = showSet(show);
     const body = [
       on.has("title") && `<span class="adhub-title">${esc(a.title)}</span>`,
       on.has("caption") && a.caption && `<span class="adhub-caption">${esc(a.caption)}</span>`,
       on.has("price") && priceText(a) && `<span class="adhub-price">${esc(priceText(a))}</span>`,
       on.has("shop") && a.shop && `<span class="adhub-shop">${esc(a.shop)}</span>`,
+      `<span class="adhub-cta">${esc(ctaText(a, cta))} <span class="adhub-arrow" aria-hidden="true">›</span></span>`,
     ].filter(Boolean);
     return `<a class="adhub-card" href="${esc(a.href)}" target="_blank" rel="sponsored noopener" data-adhub-id="${esc(a.id)}" data-adhub-placement="${esc(a.placement)}"${on.has("title") ? "" : ` aria-label="${esc(a.title)}"`}>
   <span class="adhub-tag">โฆษณา</span>
   ${on.has("image") && a.image ? `<img class="adhub-img" src="${esc(a.image)}" alt="${esc(a.title)}" loading="lazy" referrerpolicy="no-referrer">` : ""}
-  ${body.length ? `<span class="adhub-body">${body.join("\n  ")}</span>` : ""}
+  <span class="adhub-body">${body.join("\n  ")}</span>
 </a>`;
   }
 
   // กล่องรีวิว: รูปทั้งหมด (กดรูปเล็กเพื่อเปลี่ยนรูปใหญ่) คะแนน ราคา ปุ่มซื้อ ข้อมูลจำเพาะ และรายละเอียด
   // ต้องได้ข้อมูลจาก load({full: true}) ถ้าไม่มีจะใช้รูปปกรูปเดียว
-  function reviewHtml(a) {
+  function reviewHtml(a, cta) {
     const imgs = [...new Set([...(a.images || []), a.image].filter(Boolean))].slice(0, 12);
     const d = a.details || {};
     const rating = Number(d.rating);
@@ -253,7 +269,7 @@
     <h3>${esc(a.title)}</h3>
     ${meta.length ? `<div class="adhub-meta">${meta.join(" · ")}</div>` : ""}
     ${priceText(a) ? `<div class="adhub-price">${esc(priceText(a))}</div>` : ""}
-    <a class="adhub-buy" href="${esc(a.href)}" target="_blank" rel="sponsored noopener">ดูราคาล่าสุด / สั่งซื้อ</a>
+    <a class="adhub-buy" href="${esc(a.href)}" target="_blank" rel="sponsored noopener">${esc(String(cta || "").trim() || (SOURCES[a.source] ? `ดูราคาล่าสุดใน ${SOURCES[a.source]}` : "ดูราคาล่าสุด / สั่งซื้อ"))} <span class="adhub-arrow" aria-hidden="true">›</span></a>
     <div class="adhub-note">ลิงก์ affiliate: เราอาจได้ค่าคอมมิชชันเมื่อคุณซื้อผ่านลิงก์นี้ ราคาอาจเปลี่ยนแปลง</div>
     ${review ? `<div class="adhub-desc adhub-text">${esc(review)}</div>` : ""}
     ${specs.length ? `<dl class="adhub-specs">${specs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` : ""}
@@ -274,15 +290,16 @@
     box.querySelectorAll(".adhub-thumb").forEach(b => b.setAttribute("aria-current", String(b === btn)));
   });
 
-  // opts.layout: "grid" (การ์ด ค่าเริ่มต้น) หรือ "review" (กล่องรีวิว)
+  // opts.layout: "grid" (การ์ด ค่าเริ่มต้น) หรือ "review" (กล่องรีวิว), opts.cta: ข้อความบนปุ่ม
   // opts.show: ช่องบนการ์ด เช่น ["image", "title", "shop"] หรือ "image,title,shop" (ไม่ใส่ = ทุกช่อง ใช้กับการ์ดเท่านั้น)
   function render(el, ads, opts) {
     if (!el) return;
     if (!ads || !ads.length) { el.innerHTML = ""; return; }
     injectCss();
-    el.innerHTML = opts && opts.layout === "review"
-      ? ads.map(reviewHtml).join("")
-      : `<div class="adhub-grid">${ads.map(a => cardHtml(a, opts && opts.show)).join("")}</div>`;
+    const o = opts || {};
+    el.innerHTML = o.layout === "review"
+      ? ads.map(a => reviewHtml(a, o.cta)).join("")
+      : `<div class="adhub-grid">${ads.map(a => cardHtml(a, o.show, o.cta)).join("")}</div>`;
     observe(el);
   }
 
@@ -299,11 +316,12 @@
       });
       // data-show บนช่อง > ที่ตั้งไว้ในจุดที่วาง > ทุกช่อง
       const show = el.getAttribute("data-show") || (out.placement && out.placement.show) || "";
-      render(el, out.ads, { layout, show });
+      render(el, out.ads, { layout, show, cta: el.getAttribute("data-cta") });
     }
   }
 
-  window.AdHub = { site, load, render, observe, scan, cardHtml, reviewHtml, flush: () => flush(false) };
+  // เว็บที่วาดเองใช้ cardHtml(ad, show, cta) ได้ แต่ต้องเรียก style() ก่อนหนึ่งครั้งเพื่อใส่ CSS ของการ์ด
+  window.AdHub = { site, load, render, observe, scan, cardHtml, reviewHtml, style: injectCss, flush: () => flush(false) };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => scan());
   else scan();
 })();
