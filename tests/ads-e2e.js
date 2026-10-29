@@ -70,7 +70,7 @@ function listen(handler) {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(`<!doctype html><meta charset="utf-8"><body style="margin:0">
       <div id="feed" data-adhub="feed" data-context="ครู"></div>
-      <div id="detail" data-adhub="detail"></div>
+      <div id="detail" data-adhub="detail" data-cta="เช็คราคาวันนี้ <b>"></div>
       <div id="none" data-adhub="nosuch"></div>
       <div id="review" data-adhub="detail" data-product="8"></div>
       <div id="full" data-adhub="detail" data-product="5" data-layout="review"></div>
@@ -80,7 +80,7 @@ function listen(handler) {
   const siteUrl = `http://127.0.0.1:${site.address().port}/`;
 
   const browser = await chromium.launch();
-  const page = await browser.newPage();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1600 } });   // ให้ทุกช่องอยู่ในจอตอนนับการแสดง
   const errors = [];
   page.on("pageerror", e => errors.push(e.message));
 
@@ -125,6 +125,12 @@ function listen(handler) {
   assert.equal(feed[0].target, "_blank");
   assert.equal(feed[0].title, "สินค้า 1 <b>", "ชื่อสินค้าต้องแสดงเป็นข้อความ ไม่ใช่ HTML");
   assert.equal(await page.$eval("#none", el => el.innerHTML), "", "จุดที่ไม่มีต้องว่าง");
+
+  // ปุ่ม CTA บนการ์ด: ตามแหล่งสินค้า หรือข้อความจาก data-cta (เป็นข้อความ ไม่ใช่ HTML)
+  assert.equal(await page.$eval("#feed .adhub-card .adhub-cta", el => el.textContent.trim()), "ดูราคาใน Shopee ›");
+  assert.equal(await page.$eval("#detail .adhub-card .adhub-cta", el => el.textContent.trim()), "เช็คราคาวันนี้ <b> ›");
+  assert.equal(await page.$eval("#full .adhub-buy", el => el.textContent.trim()), "ดูราคาล่าสุดใน Shopee ›");
+  assert.equal(await page.$eval("#feed .adhub-card", el => getComputedStyle(el).cursor), "pointer");
 
   const adsCalls = calls.filter(c => c.path === "/rest/v1/rpc/hub_ads");
   assert.deepEqual(adsCalls[0].body, { p_site: "transfer", p_placement: "feed", p_context: "ครู", p_count: null, p_exclude: [], p_products: [] });
