@@ -142,7 +142,7 @@
     async savePlacement(pl) {
       const row = {
         site_id: pl.site_id, key: pl.key, label: pl.label || "", slots: pl.slots, positions: pl.positions || [],
-        category_ids: pl.category_ids || [], pinned_ids: pl.pinned_ids || [], enabled: pl.enabled !== false,
+        category_ids: pl.category_ids || [], pinned_ids: pl.pinned_ids || [], enabled: pl.enabled !== false, show: pl.show || [],
       };
       const q = pl.id ? client.from("hub_placements").update(row).eq("id", pl.id) : client.from("hub_placements").insert(row);
       return must(await q.select().single());
