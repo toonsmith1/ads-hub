@@ -4,6 +4,7 @@
 //   <script src="https://<เว็บ Ad Hub>/ads.js?site=<คีย์เว็บ>" async></script>
 //   <div data-adhub="feed"></div>                       ← วาดการ์ดให้เอง
 //   <div data-adhub="detail" data-context="ครู"></div>  ← ส่งคำบอกบริบทของหน้าได้
+//   <div data-adhub="feed" data-show="image,title,shop"></div>  ← เลือกช่องบนการ์ด (ไม่ใส่ = ตามที่ตั้งในจุดที่วาง)
 //   <div data-adhub="review" data-product="12"></div>   ← ขอสินค้าตามรหัส (เช่นหน้ารีวิว)
 //   <div data-adhub="review" data-product="12" data-layout="review"></div>  ← กล่องรีวิว: รูปทั้งหมด สเปก รายละเอียด ปุ่มซื้อ
 //
@@ -75,7 +76,7 @@
   // opts: {placement, context, count, product, full, allowRepeat}
   //   product: รหัสสินค้าที่ต้องการ (ตัวเลข, array หรือ "12, 40") ขึ้นก่อนตามลำดับ ชิ้นที่หยุดแสดงแล้วได้ชิ้นอื่นในหมวดเดียวกันแทน
   //   full: ขอข้อมูลรีวิวด้วย (images, description, review, details: {brand, rating, rating_count, specs})
-  // คืนค่า {placement: {key, slots, positions} | null, ads: [{id, title, price, price_text, sold_text, shop, source, image, href, placement}]}
+  // คืนค่า {placement: {key, slots, positions, show} | null, ads: [{id, title, price, price_text, sold_text, shop, source, image, href, placement}]}
   async function load(opts) {
     const o = typeof opts === "string" ? { placement: opts } : (opts || {});
     const placement = String(o.placement || "").trim().toLowerCase();
@@ -204,14 +205,26 @@
     document.head.appendChild(css);
   }
 
-  function cardHtml(a) {
-    return `<a class="adhub-card" href="${esc(a.href)}" target="_blank" rel="sponsored noopener" data-adhub-id="${esc(a.id)}" data-adhub-placement="${esc(a.placement)}">
+  // ช่องบนการ์ด: image title caption price shop ว่าง = ทุกช่อง (ป้าย "โฆษณา" แสดงเสมอ)
+  const FIELDS = ["image", "title", "caption", "price", "shop"];
+  function showSet(show) {
+    const list = (Array.isArray(show) ? show : String(show || "").split(/[\s,]+/))
+      .map(f => String(f).trim().toLowerCase()).filter(f => FIELDS.includes(f));
+    return new Set(list.length ? list : FIELDS);
+  }
+
+  function cardHtml(a, show) {
+    const on = showSet(show);
+    const body = [
+      on.has("title") && `<span class="adhub-title">${esc(a.title)}</span>`,
+      on.has("caption") && a.caption && `<span class="adhub-caption">${esc(a.caption)}</span>`,
+      on.has("price") && priceText(a) && `<span class="adhub-price">${esc(priceText(a))}</span>`,
+      on.has("shop") && a.shop && `<span class="adhub-shop">${esc(a.shop)}</span>`,
+    ].filter(Boolean);
+    return `<a class="adhub-card" href="${esc(a.href)}" target="_blank" rel="sponsored noopener" data-adhub-id="${esc(a.id)}" data-adhub-placement="${esc(a.placement)}"${on.has("title") ? "" : ` aria-label="${esc(a.title)}"`}>
   <span class="adhub-tag">โฆษณา</span>
-  ${a.image ? `<img class="adhub-img" src="${esc(a.image)}" alt="${esc(a.title)}" loading="lazy" referrerpolicy="no-referrer">` : ""}
-  <span class="adhub-body"><span class="adhub-title">${esc(a.title)}</span>
-  ${a.caption ? `<span class="adhub-caption">${esc(a.caption)}</span>` : ""}
-  ${priceText(a) ? `<span class="adhub-price">${esc(priceText(a))}</span>` : ""}
-  ${a.shop ? `<span class="adhub-shop">${esc(a.shop)}</span>` : ""}</span>
+  ${on.has("image") && a.image ? `<img class="adhub-img" src="${esc(a.image)}" alt="${esc(a.title)}" loading="lazy" referrerpolicy="no-referrer">` : ""}
+  ${body.length ? `<span class="adhub-body">${body.join("\n  ")}</span>` : ""}
 </a>`;
   }
 
@@ -262,13 +275,14 @@
   });
 
   // opts.layout: "grid" (การ์ด ค่าเริ่มต้น) หรือ "review" (กล่องรีวิว)
+  // opts.show: ช่องบนการ์ด เช่น ["image", "title", "shop"] หรือ "image,title,shop" (ไม่ใส่ = ทุกช่อง ใช้กับการ์ดเท่านั้น)
   function render(el, ads, opts) {
     if (!el) return;
     if (!ads || !ads.length) { el.innerHTML = ""; return; }
     injectCss();
     el.innerHTML = opts && opts.layout === "review"
       ? ads.map(reviewHtml).join("")
-      : `<div class="adhub-grid">${ads.map(cardHtml).join("")}</div>`;
+      : `<div class="adhub-grid">${ads.map(a => cardHtml(a, opts && opts.show)).join("")}</div>`;
     observe(el);
   }
 
@@ -283,7 +297,9 @@
         count: el.getAttribute("data-count"), product: el.getAttribute("data-product"),
         full: layout === "review",
       });
-      render(el, out.ads, { layout });
+      // data-show บนช่อง > ที่ตั้งไว้ในจุดที่วาง > ทุกช่อง
+      const show = el.getAttribute("data-show") || (out.placement && out.placement.show) || "";
+      render(el, out.ads, { layout, show });
     }
   }
 

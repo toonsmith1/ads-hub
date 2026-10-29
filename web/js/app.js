@@ -1091,6 +1091,9 @@ function categoryPicker(pl) {
     </div></details>`;
 }
 
+// ช่องบนการ์ดโฆษณา (ตรงกับ FIELDS ใน ads.js) ไม่ติ๊กเลย = ทุกช่อง
+const CARD_FIELDS = [["image", "รูป"], ["title", "ชื่อสินค้า"], ["caption", "คำโปรย"], ["price", "ราคา"], ["shop", "ร้าน"]];
+
 function placementRow(site, pl) {
   const pins = (pl.pinned_ids || []).map(id => {
     const t = state.pinTitles[id];
@@ -1107,6 +1110,11 @@ function placementRow(site, pl) {
         <label class="inline-flex items-center gap-1 text-xs text-slate-600 mr-1"><input data-pl="enabled" type="checkbox" ${pl.enabled === false ? "" : "checked"} class="rounded border-slate-300"> เปิด</label>
         <button data-act="save-placement" class="${BTN} h-9">${pl.id ? "บันทึก" : "เพิ่ม"}</button>
         ${pl.id ? `<button data-act="delete-placement" data-id="${pl.id}" class="${BTN_DANGER} h-9 px-2">ลบ</button>` : ""}
+      </div>
+      <div class="col-span-12 flex flex-wrap items-center gap-x-3 gap-y-1" data-pl-show>
+        <span class="text-[11px] text-slate-500 shrink-0">ช่องบนการ์ด</span>
+        ${CARD_FIELDS.map(([f, label]) => `<label class="inline-flex items-center gap-1 text-xs text-slate-600"><input type="checkbox" value="${f}" ${!(pl.show || []).length || pl.show.includes(f) ? "checked" : ""} class="rounded border-slate-300"> ${label}</label>`).join("")}
+        <span class="text-[11px] text-slate-400">ป้าย "โฆษณา" แสดงเสมอ</span>
       </div>
       <div class="col-span-12 flex items-center gap-2">
         <span class="text-[11px] text-slate-500 shrink-0">ปักหมุด</span>
@@ -1193,6 +1201,10 @@ async function savePlacement(btn) {
     category_ids: [...row.querySelectorAll("[data-pl-cats] input:checked")].map(i => Number(i.value)),
     enabled: get("enabled").checked,
   };
+  const show = [...row.querySelectorAll("[data-pl-show] input:checked")].map(i => i.value);
+  if (!show.length) return toast("เลือกช่องบนการ์ดอย่างน้อย 1 ช่อง", "error");
+  // ติ๊กครบทุกช่อง = เก็บเป็นว่าง (ช่องใหม่ที่เพิ่มในอนาคตจะแสดงด้วย)
+  pl.show = show.length === CARD_FIELDS.length ? [] : show;
   if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(pl.key)) return toast("คีย์จุดที่วางใช้ได้เฉพาะ a-z 0-9 _ - เช่น feed", "error");
   if (await guard(() => HubAPI.savePlacement(pl), pl.id ? "บันทึกจุดที่วางแล้ว" : "เพิ่มจุดที่วางแล้ว")) await loadSites();
 }

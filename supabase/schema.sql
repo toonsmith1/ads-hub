@@ -337,6 +337,13 @@ create index if not exists hub_events_product_idx on public.hub_events (product_
 create index if not exists hub_events_time_idx on public.hub_events (event_at desc);
 
 alter table public.hub_sites enable row level security;
+-- ช่องที่แสดงบนการ์ดโฆษณา: image title caption price shop ว่าง = แสดงทุกช่อง (ป้าย "โฆษณา" แสดงเสมอ)
+-- เว็บที่ฝังเขียนทับได้ด้วย data-show="image,title,shop"
+alter table public.hub_placements add column if not exists show text[] not null default '{}';
+alter table public.hub_placements drop constraint if exists hub_placements_show_check;
+alter table public.hub_placements add constraint hub_placements_show_check
+  check (show <@ array['image', 'title', 'caption', 'price', 'shop']::text[]);
+
 alter table public.hub_placements enable row level security;
 alter table public.hub_events enable row level security;
 
@@ -384,7 +391,7 @@ $$;
 --   สินค้าที่หน้าขอตามรหัส (p_products เช่นหน้ารีวิว) → ปักหมุด → สินค้าในหมวดตามบริบทของหน้า → สินค้าในหมวดของจุดที่วาง
 --   สินค้าที่ขอตามรหัสแต่หยุดแสดงแล้ว: ได้ชิ้นอื่นในหมวดเดียวกันแทน
 --   สุ่มแบบถ่วงน้ำหนัก: น้ำหนักที่ตั้งไว้ × ค่าคอม × คลิกใน 30 วัน ไม่ซ้ำกันและไม่ซ้ำกับ p_exclude (ที่หน้าแสดงไปแล้ว)
--- คืนค่า {placement: {key, slots, positions} | null, ads: [{id, title, caption, price, price_text, sold_text, shop, source, image_url}]}
+-- คืนค่า {placement: {key, slots, positions, show} | null, ads: [{id, title, caption, price, price_text, sold_text, shop, source, image_url}]}
 -- รุ่นก่อนไม่มี p_products ต้องลบทิ้งก่อน ไม่งั้น PostgREST เลือกไม่ได้ว่าจะเรียกตัวไหน
 drop function if exists public.hub_ads(text, text, text, integer, bigint[]);
 create or replace function public.hub_ads(
@@ -458,7 +465,7 @@ begin
   into ads from picked;
 
   return jsonb_build_object(
-    'placement', jsonb_build_object('key', pl.key, 'slots', pl.slots, 'positions', to_jsonb(pl.positions)),
+    'placement', jsonb_build_object('key', pl.key, 'slots', pl.slots, 'positions', to_jsonb(pl.positions), 'show', to_jsonb(pl.show)),
     'ads', ads);
 end;
 $$;
