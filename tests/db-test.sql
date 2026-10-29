@@ -19,9 +19,9 @@ begin
     (8, 'shopee', '8', 'ยังไม่ถึง H', 'https://s.shopee.co.th/h', fashion, 'active', 1, 1, '2999-01-01', null),
     (9, 'lazada', '9', 'ไม่มีหมวด I', 'https://www.lazada.co.th/i', null, 'active', 1, null, null, null);
   insert into hub_sites (id, key, name) values (1, 'transfer', 'ย้ายราชการ');
-  insert into hub_placements (site_id, key, slots, positions, category_ids, pinned_ids) values
-    (1, 'feed', 3, '{2,6,10}', array[fashion], '{4}'),
-    (1, 'detail', 1, '{}', '{}', '{}');
+  insert into hub_placements (site_id, key, slots, positions, category_ids, pinned_ids, show) values
+    (1, 'feed', 3, '{2,6,10}', array[fashion], '{4}', '{image,title,shop}'),
+    (1, 'detail', 1, '{}', '{}', '{}', '{}');
   insert into hub_placements (site_id, key, enabled) values (1, 'off', false);
 end $$;
 
@@ -42,6 +42,7 @@ begin
   end loop;
   assert 2 = any (seen), 'หมวดย่อย (เสื้อคลุม) ต้องสุ่มได้ด้วย';
   assert (r -> 'placement' ->> 'slots')::int = 3 and r -> 'placement' -> 'positions' = '[2, 6, 10]', 'ต้องคืนค่าตั้งของจุดที่วาง';
+  assert r -> 'placement' -> 'show' = '["image", "title", "shop"]', 'ต้องคืนช่องที่แสดงของจุดที่วาง';
   assert not (r -> 'ads' -> 0 ? 'link'), 'ไม่ส่งลิงก์ affiliate ตรง ให้ไปผ่าน /go/';
   assert r -> 'ads' -> 0 ? 'caption', 'ต้องส่งคำโปรยไปด้วย';
 

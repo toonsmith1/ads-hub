@@ -212,12 +212,14 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", "
   await newRow.locator("[data-pl=pinned_ids]").fill("#5, 2 5");
   await newRow.locator("[data-pl-cats] summary").click();
   await newRow.locator("[data-pl-cats] input[value='3']").check();
+  await newRow.locator("[data-pl-show] input[value='price']").uncheck();
+  await newRow.locator("[data-pl-show] input[value='caption']").uncheck();
   await newRow.locator("[data-act=save-placement]").click();
   await page.waitForFunction(() => window.__fake.placements.length === 2);
   const added = await page.evaluate(() => window.__fake.placements[1]);
   assert.deepEqual(
-    { key: added.key, label: added.label, slots: added.slots, positions: added.positions, pinned: added.pinned_ids, cats: added.category_ids, enabled: added.enabled },
-    { key: "detail", label: "หน้ารายละเอียด", slots: 1, positions: [], pinned: [5, 2], cats: [3], enabled: true });
+    { key: added.key, label: added.label, slots: added.slots, positions: added.positions, pinned: added.pinned_ids, cats: added.category_ids, enabled: added.enabled, show: added.show },
+    { key: "detail", label: "หน้ารายละเอียด", slots: 1, positions: [], pinned: [5, 2], cats: [3], enabled: true, show: ["image", "title", "shop"] });
   await page.waitForFunction(() => document.querySelector("[data-embed='1']").textContent.includes('data-adhub="detail"'));
 
   // ปิดจุด feed และแก้ตำแหน่ง
@@ -227,6 +229,7 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", "
   await feedRow.locator("[data-act=save-placement]").click();
   await page.waitForFunction(() => window.__fake.placements[0].enabled === false);
   assert.deepEqual(await page.evaluate(() => window.__fake.placements[0].positions), [3, 10]);
+  assert.deepEqual(await page.evaluate(() => window.__fake.placements[0].show), [], "ติ๊กครบทุกช่อง = ว่าง");
   // รอหน้าต่างวาดใหม่หลังบันทึก ก่อนกรอกช่องอื่น
   await page.waitForFunction(() => document.querySelector("[data-pl-row][data-id='1'] [data-pl=positions]").value === "3, 10");
 

@@ -33,7 +33,8 @@ function listen(handler) {
         const slots = { feed: 3, detail: 1 }[json.p_placement];
         // สินค้าที่ขอตามรหัสขึ้นก่อน (ตัวจริงทำใน hub_ads)
         const pool = [...json.p_products.map(id => products.find(p => p.id === id)), ...products.filter(p => !json.p_products.includes(p.id))];
-        const out = slots ? { placement: { key: json.p_placement, slots, positions: [2, 6] }, ads: pool.filter(p => !json.p_exclude.includes(p.id)).slice(0, json.p_count || slots) } : { placement: null, ads: [] };
+        const show = json.p_placement === "detail" ? ["image", "title", "shop"] : [];
+        const out = slots ? { placement: { key: json.p_placement, slots, positions: [2, 6], show }, ads: pool.filter(p => !json.p_exclude.includes(p.id)).slice(0, json.p_count || slots) } : { placement: null, ads: [] };
         res.writeHead(200, { ...cors, "Content-Type": "application/json" });
         return res.end(JSON.stringify(out));
       }
@@ -72,7 +73,7 @@ function listen(handler) {
       <div id="feed" data-adhub="feed" data-context="ครู"></div>
       <div id="detail" data-adhub="detail"></div>
       <div id="none" data-adhub="nosuch"></div>
-      <div id="review" data-adhub="detail" data-product="8"></div>
+      <div id="review" data-adhub="detail" data-product="8" data-show="price, nosuch"></div>
       <div id="full" data-adhub="detail" data-product="5" data-layout="review"></div>
       <div style="height:3000px"></div>
       <script src="${hubUrl}/ads.js?site=Transfer" async></script></body>`);
@@ -94,6 +95,15 @@ function listen(handler) {
   assert.deepEqual(detail, ["4"], "ช่องที่สองต้องไม่ซ้ำกับช่องแรก");
   await page.waitForSelector("#review .adhub-card");
   assert.deepEqual(await page.$$eval("#review .adhub-card", els => els.map(e => e.dataset.adhubId)), ["8"], "data-product ต้องได้ชิ้นที่ขอ");
+
+  // ช่องบนการ์ด: ตามที่ตั้งในจุดที่วาง (detail = รูป ชื่อ ร้าน) และ data-show บนช่องเขียนทับได้
+  const fields = (sel) => page.$eval(sel, el => ({
+    img: !!el.querySelector(".adhub-img"), title: !!el.querySelector(".adhub-title"), price: !!el.querySelector(".adhub-price"),
+    tag: !!el.querySelector(".adhub-tag"), label: el.getAttribute("aria-label"),
+  }));
+  assert.deepEqual(await fields("#detail .adhub-card"), { img: true, title: true, price: false, tag: true, label: null });
+  assert.deepEqual(await fields("#review .adhub-card"), { img: false, title: false, price: true, tag: true, label: "สินค้า 8 <b>" });
+  assert.deepEqual(await fields("#feed .adhub-card:nth-child(2)"), { img: true, title: true, price: true, tag: true, label: null }, "ไม่ได้ตั้ง = ทุกช่อง");
 
   // กล่องรีวิว: รูปทั้งหมด กดรูปเล็กเปลี่ยนรูปใหญ่ คะแนน สเปก รายละเอียด (เป็นข้อความ ไม่ใช่ HTML) ปุ่มซื้อไปที่ /go/
   await page.waitForSelector("#full .adhub-review");
