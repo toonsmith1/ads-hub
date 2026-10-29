@@ -11,7 +11,8 @@
 //
 // หรือดึงข้อมูลไปวาดเองด้วย AdHub.load() แล้วเรียก AdHub.observe() เพื่อนับการแสดง (ดู README)
 // ลิงก์บนการ์ดชี้ไปที่ /go/<id> ซึ่งนับคลิกแล้วส่งต่อไปลิงก์ affiliate
-// ถ้าคลังกลางล่ม ใช้ผลครั้งล่าสุดที่เก็บไว้ในเครื่อง ถ้าไม่มีก็แค่ไม่มีโฆษณา หน้าเว็บไม่พัง
+// เปิดเว็บซ้ำภายในวันเดียวกัน ใช้ผลครั้งล่าสุดที่เก็บไว้ในเครื่องวาดทันที แล้วค่อยดึงของใหม่เก็บไว้ใช้ครั้งหน้า
+// ถ้าคลังกลางล่ม ใช้ผลที่เก็บไว้ (ไม่เกิน 7 วัน) ถ้าไม่มีก็แค่ไม่มีโฆษณา หน้าเว็บไม่พัง
 // ==========================================
 (function () {
   if (window.AdHub) return;
@@ -22,6 +23,7 @@
   const site = String(ds.site || (src && src.searchParams.get("site")) || "").trim().toLowerCase();
   const TIMEOUT_MS = 4000;
   const CACHE_DAYS = 7;
+  const INSTANT_HOURS = 24;   // แคชที่อายุไม่เกินนี้ใช้วาดทันทีโดยไม่รอคลังกลาง
   const shown = new Set();   // ไม่ให้สินค้าชิ้นเดียวกันขึ้นซ้ำในหน้าเดียว
 
   // ---------- ค่าเชื่อมต่อ: data-url/data-key บนแท็ก > HUB_CONFIG ที่มีอยู่แล้ว > config.js ข้างไฟล์นี้ ----------
@@ -63,10 +65,10 @@
     }
   }
 
-  function cacheGet(k) {
+  function cacheGet(k, maxMs = CACHE_DAYS * 864e5) {
     try {
       const v = JSON.parse(localStorage.getItem(k) || "null");
-      return v && Date.now() - v.at < CACHE_DAYS * 864e5 ? v.data : null;
+      return v && Date.now() - v.at < maxMs ? v.data : null;
     } catch (_) { return null; }
   }
   function cacheSet(k, data) {
@@ -87,9 +89,8 @@
     const empty = { placement: null, ads: [] };
     if (!site || !placement) return empty;
     const cacheKey = `adhub:v1:${site}:${placement}:${context}:${products.join(",")}${o.full ? ":full" : ""}`;
-    let data;
-    try {
-      data = await rpc("hub_ads", {
+    const fetchData = async () => {
+      const data = await rpc("hub_ads", {
         p_site: site, p_placement: placement, p_context: context,
         p_count: o.count ? Number(o.count) : null,
         p_exclude: o.allowRepeat ? [] : [...shown],
@@ -101,9 +102,18 @@
         data.ads = data.ads.map(a => ({ images: [], description: "", review: "", details: {}, ...a, ...info.get(a.id) }));
       }
       cacheSet(cacheKey, data);
-    } catch (err) {
-      data = cacheGet(cacheKey);
-      if (!data) { console.warn("[AdHub]", err.message || err); return empty; }
+      return data;
+    };
+    // มีแคชที่ยังใหม่: วาดเลย แล้วดึงของใหม่เบื้องหลังเก็บไว้ครั้งหน้า
+    let data = cacheGet(cacheKey, INSTANT_HOURS * 36e5);
+    if (data) fetchData().catch(() => {});
+    else {
+      try {
+        data = await fetchData();
+      } catch (err) {
+        data = cacheGet(cacheKey);
+        if (!data) { console.warn("[AdHub]", err.message || err); return empty; }
+      }
     }
     const c = await config();
     const ads = (data && Array.isArray(data.ads) ? data.ads : [])
@@ -320,6 +330,7 @@
     }
   }
 
+  config();   // เริ่มโหลด config.js ทันที ไม่ต้องรอหน้าเว็บ
   // เว็บที่วาดเองใช้ cardHtml(ad, show, cta) ได้ แต่ต้องเรียก style() ก่อนหนึ่งครั้งเพื่อใส่ CSS ของการ์ด
   window.AdHub = { site, load, render, observe, scan, cardHtml, reviewHtml, style: injectCss, flush: () => flush(false) };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => scan());
