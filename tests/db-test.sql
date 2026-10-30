@@ -351,3 +351,52 @@ do $$ begin
   exception when check_violation then null;
   end;
 end $$;
+
+-- ---------- ยอดวิว transfer (hub_transfer_stats) ----------
+-- ยังไม่มีฟังก์ชันของ transfer: คืน null ไม่ error
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
+do $$ begin
+  assert hub_transfer_stats(7) = '{"visitors": null, "analytics": null}'::jsonb, 'ยังไม่มีข้อมูล transfer ต้องได้ null';
+end $$;
+reset role;
+-- จำลองฟังก์ชันของ transfer ที่ให้แค่ service_role เรียก
+create function public.visitor_stats(p_days integer default 30) returns jsonb language sql stable security definer
+  set search_path = public as $$ select jsonb_build_object('days', p_days, 'total_views', 12) $$;
+revoke all on function public.visitor_stats(integer) from public, anon, authenticated;
+grant execute on function public.visitor_stats(integer) to service_role;
+create function public.analytics_stats(p_days integer default 30) returns jsonb language sql stable security definer
+  set search_path = public as $$ select jsonb_build_object('days', p_days, 'views', 5) $$;
+revoke all on function public.analytics_stats(integer) from public, anon, authenticated;
+grant execute on function public.analytics_stats(integer) to service_role;
+set role authenticated;
+do $$ declare r jsonb; begin
+  r := hub_transfer_stats(7);
+  assert r -> 'visitors' ->> 'total_views' = '12' and r -> 'analytics' ->> 'views' = '5', format('แอดมินต้องเห็นยอดวิว ได้ %s', r);
+  assert hub_transfer_stats(9999) -> 'visitors' ->> 'days' = '365', 'จำกัดไม่เกิน 365 วัน';
+  begin
+    perform visitor_stats(7);
+    raise exception 'authenticated ต้องเรียก visitor_stats ตรงๆ ไม่ได้';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+-- ล็อกอินแต่ไม่ใช่แอดมิน
+set request.jwt.claim.sub = '00000000-0000-0000-0000-000000000009';
+do $$ begin
+  begin
+    perform hub_transfer_stats(7);
+    raise exception 'คนที่ไม่ใช่แอดมินต้องไม่เห็นยอดวิว';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role anon;
+do $$ begin
+  begin
+    perform hub_transfer_stats(7);
+    raise exception 'anon ต้องเรียกไม่ได้';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
