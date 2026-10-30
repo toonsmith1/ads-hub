@@ -28,6 +28,33 @@ function fakeEvents(now) {
   return ev.sort((a, b) => a.id - b.id);
 }
 
+// ผลของ hub_transfer_stats แบบเดียวกับ visitor_stats / analytics_stats ของ transfer
+function fakeTransfer(days, now) {
+  const today = new Date(now + TZ).toISOString().slice(0, 10);
+  const day = n => new Date(Date.parse(today) - n * DAY).toISOString().slice(0, 10);
+  const daily = Array.from({ length: days }, (_, i) => ({ day: day(days - 1 - i), views: (days - 1 - i) % 2 ? 0 : 10, visitors: (days - 1 - i) % 2 ? 0 : 4 }));
+  const total = daily.reduce((n, x) => n + x.views, 0);
+  const hours = Array.from({ length: 24 }, (_, hour) => ({ hour, views: hour === 9 ? total : 0, visitors: hour === 9 ? 4 : 0 }));
+  return {
+    visitors: {
+      days, total_views: total, unique_visitors: 7, today_views: 10, today_unique: 4, all_time_views: 1234,
+      month_start: today.slice(0, 8) + "01", month_views: 50, month_unique: 30, prev_month_unique: 20,
+      daily, hourly: hours, today_hourly: hours.map(h => ({ ...h, views: h.hour === 9 ? 10 : 0 })),
+      weekday: Array.from({ length: 7 }, (_, i) => ({ dow: i + 1, views: i === 0 ? total : 0, visitors: i === 0 ? 7 : 0 })),
+      provinces: [{ province: "กรุงเทพมหานคร", views: 8, visitors: 5 }, { province: "<เชียงใหม่>", views: 2, visitors: 2 }],
+      ips: [],
+    },
+    analytics: fake.noAnalytics ? null : {
+      days, views: 6, sessions: 4, clients: 3, new_clients: 2, returning_clients: 1, avg_duration_sec: 75, median_duration_sec: 60,
+      sources: [{ source: "google", sessions: 3 }, { source: "line", sessions: 1 }], ref_hosts: [],
+      devices: [{ device: "mobile", clients: 3 }],
+      top_announcements: [{ id: 5, title: "ประกาศย้าย ครู <สพฐ.>", views: 4, clients: 3, avg_duration_sec: 90 }],
+      consent: { accept: 3, decline: 1 },
+    },
+  };
+}
+const fake = { admin: true, token: 0, pages: 0, refreshed: 0, expiresIn: 3600, transferDays: [], noTransferFn: false, noAnalytics: false };
+
 (async () => {
   const server = await new Promise(r => {
     const s = http.createServer((req, res) => {
@@ -41,7 +68,6 @@ function fakeEvents(now) {
   const base = `http://127.0.0.1:${server.address().port}/`;
 
   const events = fakeEvents(Date.now());
-  const fake = { admin: true, token: 0, pages: 0, refreshed: 0, expiresIn: 3600 };
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 400, height: 860 } });
   const errors = [];
@@ -64,6 +90,12 @@ function fakeEvents(now) {
     }
     if (headers.authorization !== "Bearer t" + fake.token) return json({ message: "JWT expired" }, 401);
     if (u.pathname === "/rest/v1/rpc/hub_is_admin") return json(fake.admin);
+    if (u.pathname === "/rest/v1/rpc/hub_transfer_stats") {
+      if (fake.noTransferFn) return json({ code: "PGRST202", message: "Could not find the function public.hub_transfer_stats(p_days) in the schema cache" }, 404);
+      const { p_days } = JSON.parse(req.postData());
+      fake.transferDays.push(p_days);
+      return json(fakeTransfer(p_days, Date.now()));
+    }
     if (u.pathname === "/rest/v1/hub_sites") return json([{ id: 1, key: "transfer", name: "Transfer" }]);
     if (u.pathname === "/rest/v1/hub_products") {
       const ids = u.searchParams.get("id").replace(/^in\.\(|\)$/g, "").split(",").map(Number);
@@ -168,6 +200,57 @@ function fakeEvents(now) {
   // เมื่อวาน
   await page.click("[data-range=yesterday]");
   await page.waitForFunction(() => !document.querySelector("#main").classList.contains("loading") && document.querySelector(".total").textContent.startsWith("4 "));
+
+  // ยอดวิว transfer: ไม่มีปุ่มเมื่อวาน เริ่มที่ 7 วัน
+  const idle = () => page.waitForFunction(() => !document.querySelector("#main").classList.contains("loading"));
+  await page.click("[data-mode=views]");
+  await page.waitForFunction(() => document.querySelector("#content .total")?.textContent.includes("ครั้งที่เปิดดู"));
+  await idle();
+  assert.equal(await page.textContent("#title"), "ยอดวิว transfer");
+  assert.equal(await page.locator("[data-vrange=yesterday]").count(), 0);
+  assert.deepEqual(fake.transferDays, [7]);
+  t = await text();
+  assert(t.includes("40 ครั้งที่เปิดดู") && t.includes("ผู้ชมไม่ซ้ำ 7 คน") && t.includes("เดือนก่อน 20 ▲ 50%") && t.includes("1,234"), t);
+  assert.equal(await page.locator("#content .chart .bar").count(), 7);
+  assert(t.includes("ประกาศย้าย ครู <สพฐ.>") && t.includes("อยู่เฉลี่ย 1 นาที 30 วินาที"), t);
+  if (process.env.SHOT_DIR) await page.screenshot({ path: path.join(process.env.SHOT_DIR, "views-app.png"), fullPage: true });
+  await page.click("[data-vtab=sources]");
+  t = (await text()).replace(/\s+/g, "");
+  assert(t.includes("Google3") && t.includes("LINE1") && t.includes("มือถือ3") && t.includes("กลับมาซ้ำ1"), t);
+  await page.click("[data-vtab=provinces]");
+  t = await text();
+  assert(t.includes("กรุงเทพมหานคร") && t.includes("<เชียงใหม่>"), t);
+  await page.click("[data-vtab=hours]");
+  t = await text();
+  assert(t.includes("ช่วง 9:00–9:59 น.") && t.includes("จันทร์"), t);
+  await page.click("[data-vtab=days]");
+  assert.equal(await page.locator("#content table.days tr").count(), 8);
+  // วันนี้: กราฟรายชั่วโมง
+  await page.click("[data-vrange=today]");
+  await page.waitForFunction(() => document.querySelectorAll("#content .chart .bar").length === 24);
+  await idle();
+  assert.deepEqual(fake.transferDays, [7, 1]);
+  // ยังไม่ได้รัน analytics.sql ของ transfer
+  fake.noAnalytics = true;
+  await page.click("[data-vrange='30']");
+  await page.waitForFunction(() => document.querySelectorAll("#content .chart .bar").length === 30);
+  await idle();
+  await page.click("[data-vtab=pages]");
+  assert((await text()).includes("analytics.sql"));
+  // ยังไม่ได้รัน schema.sql ของ Ad Hub รุ่นใหม่
+  fake.noTransferFn = true;
+  await page.click("[data-act=refresh]");
+  await page.waitForFunction(() => document.querySelector("#main-error").textContent.includes("hub_transfer_stats"));
+  await idle();
+  fake.noTransferFn = false;
+  // จำโหมดไว้ตอนเปิดแอปใหม่
+  await page.reload();
+  await page.waitForFunction(() => document.querySelector("#content .total")?.textContent.includes("ครั้งที่เปิดดู"));
+  assert.equal(fake.transferDays.at(-1), 30);
+  // กลับไปหน้าคลิก ช่วงเดิม (เมื่อวาน)
+  await page.click("[data-mode=clicks]");
+  await page.waitForFunction(() => document.querySelector("#content .total")?.textContent.startsWith("4 "));
+  await idle();
 
   // token หมดอายุ: ต่ออายุเองแล้วโหลดต่อได้
   await page.evaluate(() => { const s = JSON.parse(localStorage.getItem("session")); s.expires_at = 0; localStorage.setItem("session", JSON.stringify(s)); });

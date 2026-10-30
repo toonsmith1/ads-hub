@@ -36,7 +36,7 @@
   <!-- หน้าหลัก -->
   <section id="main" class="screen" hidden>
     <header class="top">
-      <h1>จำนวนคลิก</h1>
+      <h1 id="title">จำนวนคลิก</h1>
       <button class="icon" data-act="refresh" aria-label="โหลดใหม่">⟳</button>
       <button class="icon" data-act="menu" aria-label="เมนู">⋮</button>
     </header>
@@ -44,6 +44,10 @@
       <button data-act="logout">ออกจากระบบ</button>
       <button data-act="setup">เปลี่ยนโปรเจกต์ Supabase</button>
     </div>
+    <nav class="modes" id="modes">
+      <button data-mode="clicks">คลิกโฆษณา</button>
+      <button data-mode="views">ยอดวิว transfer</button>
+    </nav>
     <nav class="chips" id="ranges"></nav>
     <p class="error" id="main-error"></p>
     <div id="content"></div>

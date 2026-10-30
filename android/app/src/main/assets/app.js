@@ -1,6 +1,7 @@
 // ==========================================
 // แอปดูจำนวนคลิกของ Ad Hub (อ่านอย่างเดียว) คุยกับ Supabase ผ่าน REST ตรงๆ ไม่มีไลบรารีภายนอก
 // hub_events อ่านได้เฉพาะแอดมิน (RLS) จึงใช้แค่ publishable/anon key + ล็อกอินแอดมิน ไม่มีคีย์ที่เขียนข้อมูลได้ในแอป
+// หน้า "ยอดวิว transfer" อ่านสรุปจาก rpc hub_transfer_stats (แอดมินเท่านั้น ดู supabase/schema.sql)
 // ทดสอบในเบราว์เซอร์: node tests/clicks-app-e2e.js
 // ==========================================
 (function () {
@@ -19,6 +20,13 @@
     { id: "90", label: "90 วัน", days: 90, back: 0 },
   ];
   const TABS = [["products", "สินค้า"], ["sites", "เว็บ/ตำแหน่ง"], ["days", "รายวัน"]];
+  // ยอดวิวสรุปฝั่งเซิร์ฟเวอร์ทีละ N วันล่าสุด จึงไม่มี "เมื่อวาน"
+  const VRANGES = RANGES.filter(r => r.back === 0);
+  const VTABS = [["pages", "ประกาศ"], ["sources", "ช่องทาง"], ["provinces", "จังหวัด"], ["hours", "ช่วงเวลา"], ["days", "รายวัน"]];
+  const SOURCES = { direct: "เข้าตรง/บุ๊กมาร์ก", google: "Google", search_other: "เครื่องมือค้นหาอื่น", facebook: "Facebook",
+                    line: "LINE", x: "X (Twitter)", tiktok: "TikTok", youtube: "YouTube", other: "เว็บอื่น", internal: "ในเว็บ" };
+  const DEVICES = { mobile: "มือถือ", tablet: "แท็บเล็ต", desktop: "คอมพิวเตอร์", unknown: "ไม่ทราบ" };
+  const WEEKDAYS = ["", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์", "อาทิตย์"];
 
   const store = {
     get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
@@ -131,7 +139,8 @@
   }
 
   // ---------- สถานะหน้าจอ ----------
-  const state = { range: store.get("range") || "7", tab: "products", day: null, q: "", data: null, loadedAt: 0, seq: 0 };
+  const state = { range: store.get("range") || "7", tab: "products", day: null, q: "", data: null, loadedAt: 0, seq: 0,
+                  mode: store.get("mode") === "views" ? "views" : "clicks", vrange: store.get("vrange") || "7", vtab: "pages", vdata: null };
 
   function show(id) {
     for (const s of document.querySelectorAll(".screen")) s.hidden = s.id !== id;
@@ -200,9 +209,16 @@
   });
 
   document.addEventListener("click", e => {
-    const el = e.target.closest("[data-act], [data-range], [data-tab], [data-day], [data-pid]");
+    const el = e.target.closest("[data-act], [data-mode], [data-range], [data-vrange], [data-tab], [data-vtab], [data-day], [data-pid]");
     if (!el) { $("#menu").hidden = true; return; }
     if (el.dataset.act !== "menu") $("#menu").hidden = true;
+    if (el.dataset.mode) {
+      if (el.dataset.mode === state.mode) return;
+      state.mode = el.dataset.mode; store.set("mode", state.mode); state.loadedAt = 0;
+      renderRanges(); $("#content").innerHTML = `<p class="empty">กำลังโหลด…</p>`; return load();
+    }
+    if (el.dataset.vrange) { state.vrange = el.dataset.vrange; store.set("vrange", state.vrange); renderRanges(); return load(); }
+    if (el.dataset.vtab) { state.vtab = el.dataset.vtab; return renderViews(); }
     if (el.dataset.range) { state.range = el.dataset.range; state.day = null; store.set("range", state.range); renderRanges(); return load(); }
     if (el.dataset.tab) { state.tab = el.dataset.tab; return render(); }
     if (el.dataset.day) { state.day = state.day === el.dataset.day ? null : el.dataset.day; return render(); }
@@ -233,11 +249,16 @@
   });
 
   function renderRanges() {
-    $("#ranges").innerHTML = RANGES.map(r =>
-      `<button data-range="${r.id}" class="${r.id === state.range ? "on" : ""}">${r.label}</button>`).join("");
+    const views = state.mode === "views";
+    $("#title").textContent = views ? "ยอดวิว transfer" : "จำนวนคลิก";
+    for (const b of document.querySelectorAll("[data-mode]")) b.classList.toggle("on", b.dataset.mode === state.mode);
+    $("#ranges").innerHTML = views
+      ? VRANGES.map(r => `<button data-vrange="${r.id}" class="${r.id === state.vrange ? "on" : ""}">${r.label}</button>`).join("")
+      : RANGES.map(r => `<button data-range="${r.id}" class="${r.id === state.range ? "on" : ""}">${r.label}</button>`).join("");
   }
 
   async function load() {
+    if (state.mode === "views") return loadViews();
     const seq = ++state.seq;
     const r = RANGES.find(x => x.id === state.range) || RANGES[2];
     const p = period(r);
@@ -271,7 +292,7 @@
 
   function render() {
     const d = state.data;
-    if (!d) return;
+    if (!d || state.mode !== "clicks") return;
     const { r, p, rows } = d;
     const hourly = r.days === 1;
     const rows2 = state.day ? rows.filter(x => dayKey(x.t) === state.day) : rows;
@@ -360,6 +381,115 @@
     }
     const c = count(rows, x => dayKey(x.t));
     return `<table class="days"><tr><th>วันที่</th><th>คลิก</th></tr>${days(p).reverse().map(k => `<tr data-day="${k}"><td>${thDay(k)}</td><td>${fmt(c.get(k) || 0)}</td></tr>`).join("")}</table>`;
+  }
+
+  // ---------- ยอดวิว transfer ----------
+  async function loadViews() {
+    const seq = ++state.seq;
+    const r = VRANGES.find(x => x.id === state.vrange) || VRANGES[1];
+    $("#main").classList.add("loading");
+    $("#main-error").textContent = "";
+    if (!state.vdata || state.vdata.r !== r) $("#content").innerHTML = `<p class="empty">กำลังโหลด…</p>`;
+    try {
+      const d = await http("/rest/v1/rpc/hub_transfer_stats", { method: "POST", body: { p_days: r.days } });
+      if (seq !== state.seq) return;
+      state.vdata = { r, v: d?.visitors || null, a: d?.analytics || null };
+      state.loadedAt = Date.now();
+      renderViews();
+    } catch (e) {
+      if (seq !== state.seq) return;
+      if (e instanceof AuthError) return showLogin(e.message);
+      const missing = /hub_transfer_stats/.test(e.message || "");
+      $("#main-error").textContent = missing
+        ? "ฐานข้อมูลยังไม่มีฟังก์ชัน hub_transfer_stats ให้รัน supabase/schema.sql ของ Ad Hub ซ้ำอีกครั้งใน SQL Editor"
+        : "โหลดไม่สำเร็จ: " + (e.message || e) + (navigator.onLine === false ? " (ไม่มีอินเทอร์เน็ต)" : "");
+      if (missing) $("#content").innerHTML = "";
+    } finally {
+      if (seq === state.seq) $("#main").classList.remove("loading");
+    }
+  }
+
+  const dur = s => s == null ? "-" : s < 60 ? `${Math.round(s)} วินาที` : `${Math.floor(s / 60)} นาที ${Math.round(s % 60)} วินาที`;
+  const pct = (a, b) => b ? Math.round((a - b) / b * 100) : null;
+  const arrow = d => d == null ? "" : ` <b class="${d >= 0 ? "up" : "down"}">${d >= 0 ? "▲" : "▼"} ${Math.abs(d)}%</b>`;
+
+  function bars(items, n, title) {
+    const max = Math.max(1, ...items.map(n));
+    return `<div class="chart">${items.map(x => `<div class="bar${n(x) ? "" : " zero"}" title="${esc(title(x))}"><span style="height:${Math.max(1, n(x) / max * 100)}%"></span></div>`).join("")}</div>`;
+  }
+
+  function list(items, label, n, sub = () => "") {
+    if (!items?.length) return `<p class="empty">ยังไม่มีข้อมูลในช่วงนี้</p>`;
+    const top = Math.max(1, ...items.map(n));
+    return `<ul class="rows">${items.map(x => `<li><div class="name"><b>${esc(label(x))}</b>${sub(x) ? `<small>${sub(x)}</small>` : ""}
+      <div class="share"><i style="width:${n(x) / top * 100}%"></i></div></div><div class="n">${fmt(n(x))}</div></li>`).join("")}</ul>`;
+  }
+
+  function renderViews() {
+    const d = state.vdata;
+    if (!d || state.mode !== "views") return;
+    const { r, v, a } = d;
+    const updated = ` · อัปเดต ${thTime(state.loadedAt)} น.`;
+    if (!v) {
+      $("#content").innerHTML = `<div class="card"><p class="empty">ยังไม่พบข้อมูลยอดวิวของเว็บ transfer ในโปรเจกต์ Supabase นี้</p>
+        <p class="muted small">ยอดวิวมาจากตาราง page_views ของ transfer ต้องรันไฟล์ <code>supabase/visitors.sql</code> ของ repo transfer ในโปรเจกต์เดียวกับ Ad Hub ก่อน</p></div>`;
+      return;
+    }
+    const hourly = r.days === 1;
+    const daily = v.daily || [];
+    const series = hourly ? (v.today_hourly || []) : daily;
+    const keys = daily.map(x => String(x.day).slice(0, 10));
+    const labels = hourly ? ["0:00", "12:00", "23:00"]
+      : keys.length ? [thDate(keys[0]), thDate(keys[Math.floor((keys.length - 1) / 2)]), thDate(keys[keys.length - 1])] : [];
+    const monthDiff = pct(v.month_unique, v.prev_month_unique);
+    const summary = `
+      <div class="card">
+        <div class="muted">${hourly ? `วันนี้ ${keys.length ? thDay(keys[keys.length - 1]) : ""}` : keys.length ? `${thDate(keys[0])} – ${thDate(keys[keys.length - 1])}` : ""}</div>
+        <div class="total">${fmt(v.total_views || 0)} <small style="font-size:16px;font-weight:500">ครั้งที่เปิดดู</small></div>
+        <div class="stats">
+          <span>ผู้ชมไม่ซ้ำ <b>${fmt(v.unique_visitors || 0)}</b> คน</span>
+          ${hourly ? "" : `<span>วันนี้ ${fmt(v.today_views || 0)} ครั้ง (${fmt(v.today_unique || 0)} คน)</span>
+          <span>เฉลี่ย ${fmt(Math.round((v.total_views || 0) / r.days * 10) / 10)}/วัน</span>`}
+          <span>เดือนนี้ ${fmt(v.month_unique || 0)} คน · เดือนก่อน ${fmt(v.prev_month_unique || 0)}${arrow(monthDiff)}</span>
+          <span>ทั้งหมดตั้งแต่เริ่มเก็บ ${fmt(v.all_time_views || 0)} ครั้ง</span>
+        </div>
+        ${bars(series, x => x.views, x => hourly ? `${x.hour}:00 น. ${x.views} ครั้ง ${x.visitors} คน` : `${thDay(String(x.day).slice(0, 10))} ${x.views} ครั้ง ${x.visitors} คน`)}
+        <div class="axis">${labels.map(l => `<span>${l}</span>`).join("")}</div>
+      </div>`;
+
+    const tabs = `<div class="tabs">${VTABS.map(([id, label]) => `<button data-vtab="${id}" class="${state.vtab === id ? "on" : ""}">${label}</button>`).join("")}</div>`;
+    const consent = `<p class="muted small">เฉพาะผู้ชมที่กดยอมรับคุกกี้บนเว็บ transfer จึงน้อยกว่ายอดวิวด้านบน</p>`;
+    const noA = `<p class="empty">ยังไม่มีข้อมูลส่วนนี้ (ต้องรัน <code>supabase/analytics.sql</code> ของ transfer)</p>`;
+    let body = "";
+    if (state.vtab === "pages") {
+      body = !a ? noA : consent + list(a.top_announcements, x => x.title || `ประกาศ #${x.id}`, x => x.views,
+        x => `${fmt(x.clients)} คน${x.avg_duration_sec ? ` · อยู่เฉลี่ย ${dur(x.avg_duration_sec)}` : ""}`);
+    } else if (state.vtab === "sources") {
+      body = !a ? noA : consent +
+        `<div class="stats" style="margin:0 0 8px"><span>${fmt(a.sessions || 0)} ครั้งที่เข้าเว็บ</span><span>${fmt(a.clients || 0)} คน</span>
+          <span>ใหม่ ${fmt(a.new_clients || 0)} · กลับมาซ้ำ ${fmt(a.returning_clients || 0)}</span>
+          <span>อยู่ในหน้าเฉลี่ย ${dur(a.avg_duration_sec)}</span></div>` +
+        `<h2>มาจากไหน</h2>` + list(a.sources, x => SOURCES[x.source] || x.source, x => x.sessions) +
+        (a.ref_hosts?.length ? `<h2 style="margin-top:12px">เว็บอื่นที่ส่งคนมา</h2>` + list(a.ref_hosts, x => x.ref_host, x => x.sessions) : "") +
+        `<h2 style="margin-top:12px">อุปกรณ์ (คน)</h2>` + list(a.devices, x => DEVICES[x.device] || x.device, x => x.clients);
+    } else if (state.vtab === "provinces") {
+      body = list(v.provinces, x => x.province, x => x.visitors, x => `${fmt(x.views)} ครั้ง`) +
+        `<p class="muted small">ตัวเลขด้านขวาคือจำนวนคน (ตามจังหวัดที่ระบบเดาจาก IP)</p>`;
+    } else if (state.vtab === "hours") {
+      const hours = v.hourly || [];
+      const peak = hours.reduce((m, x) => x.views > (m?.views || 0) ? x : m, null);
+      body = `<h2>ทุกชั่วโมงในช่วงนี้</h2>${bars(hours, x => x.views, x => `${x.hour}:00 น. ${x.views} ครั้ง`)}
+        <div class="axis"><span>0:00</span><span>12:00</span><span>23:00</span></div>
+        ${peak ? `<p class="muted small">คนเข้ามากสุดช่วง ${peak.hour}:00–${peak.hour}:59 น. (${fmt(peak.views)} ครั้ง)</p>` : ""}
+        <h2 style="margin-top:12px">ตามวันในสัปดาห์</h2>
+        <table class="days"><tr><th>วัน</th><th>คน</th><th>ครั้ง</th></tr>${(v.weekday || []).map(x =>
+          `<tr><td>${WEEKDAYS[x.dow]}</td><td>${fmt(x.visitors)}</td><td>${fmt(x.views)}</td></tr>`).join("")}</table>`;
+    } else {
+      body = `<table class="days"><tr><th>วันที่</th><th>คน</th><th>ครั้ง</th></tr>${daily.slice().reverse().map(x =>
+        `<tr><td>${thDay(String(x.day).slice(0, 10))}</td><td>${fmt(x.visitors)}</td><td>${fmt(x.views)}</td></tr>`).join("")}</table>`;
+    }
+    $("#content").innerHTML = summary + `<div class="card">${tabs}${body}</div>` +
+      `<p class="note">นับทุกครั้งที่มีคนเปิดหน้าเว็บ transfer ผู้ชมไม่ซ้ำนับจากรหัส hash ของ IP (ไม่เก็บ IP เต็ม) วันที่ตามเวลาไทย${updated}</p>`;
   }
 
   document.addEventListener("input", e => {
