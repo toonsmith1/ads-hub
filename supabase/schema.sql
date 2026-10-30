@@ -690,3 +690,35 @@ end;
 $$;
 revoke all on function public.hub_dashboard(integer) from public;
 grant execute on function public.hub_dashboard(integer) to authenticated;
+
+-- ==========================================
+-- ยอดวิวของเว็บ transfer (หน้า "ยอดวิว" ในแอป Android) แอดมิน Ad Hub เท่านั้น
+-- อ่านจากฟังก์ชันของ transfer ใน Supabase โปรเจกต์เดียวกัน (supabase/visitors.sql และ analytics.sql ของ repo transfer)
+-- ฟังก์ชันพวกนั้นให้แค่ service_role เรียก ตัวนี้จึงเป็น security definer และตรวจสิทธิ์แอดมินเองก่อน
+-- ถ้ายังไม่ได้รันไฟล์ของ transfer ค่านั้นเป็น null (ไม่ error)
+-- คืนค่า {visitors: visitor_stats(p_days), analytics: analytics_stats(p_days)}
+-- ==========================================
+create or replace function public.hub_transfer_stats(p_days integer default 30)
+returns jsonb
+language plpgsql stable security definer
+set search_path = public
+as $$
+declare
+  v_days int := least(greatest(coalesce(p_days, 30), 1), 365);
+  v_visitors jsonb;
+  v_analytics jsonb;
+begin
+  if not hub_is_admin() then
+    raise exception 'ต้องเป็นแอดมินของ Ad Hub' using errcode = '42501';
+  end if;
+  if to_regprocedure('public.visitor_stats(integer)') is not null then
+    execute 'select public.visitor_stats($1)' into v_visitors using v_days;
+  end if;
+  if to_regprocedure('public.analytics_stats(integer)') is not null then
+    execute 'select public.analytics_stats($1)' into v_analytics using v_days;
+  end if;
+  return jsonb_build_object('visitors', v_visitors, 'analytics', v_analytics);
+end;
+$$;
+revoke all on function public.hub_transfer_stats(integer) from public, anon;
+grant execute on function public.hub_transfer_stats(integer) to authenticated;
